@@ -1,0 +1,10 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs/HumanitarianAidPlatform.slnx/v18/.wsuo
+/.vs/HumanitarianAidPlatform.slnx/v18/DocumentLayout.json
+/.vs/slnx.sqlite
+/.vs/VSWorkspaceState.json
+/Solution1/WebApplication1
+/.vs/HumanitarianAidPlatform.slnx/FileContentIndex/ad43f5af-38d2-4f0d-9ffb-91a3044402f3.vsidx
