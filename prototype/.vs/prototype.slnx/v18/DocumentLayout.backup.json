@@ -1,0 +1,89 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\prototype\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{278D8079-CFF0-48BC-9869-2689EBBCA728}|prototype\\prototype.csproj|c:\\users\\lenovo\\source\\repos\\humanitarianaidplatform\\prototype\\prototype\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{278D8079-CFF0-48BC-9869-2689EBBCA728}|prototype\\prototype.csproj|solutionrelative:prototype\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{278D8079-CFF0-48BC-9869-2689EBBCA728}|prototype\\prototype.csproj|c:\\users\\lenovo\\source\\repos\\humanitarianaidplatform\\prototype\\prototype\\square.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{278D8079-CFF0-48BC-9869-2689EBBCA728}|prototype\\prototype.csproj|solutionrelative:prototype\\square.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{278D8079-CFF0-48BC-9869-2689EBBCA728}|prototype\\prototype.csproj|c:\\users\\lenovo\\source\\repos\\humanitarianaidplatform\\prototype\\prototype\\shapeprototype.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{278D8079-CFF0-48BC-9869-2689EBBCA728}|prototype\\prototype.csproj|solutionrelative:prototype\\shapeprototype.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{278D8079-CFF0-48BC-9869-2689EBBCA728}|prototype\\prototype.csproj|c:\\users\\lenovo\\source\\repos\\humanitarianaidplatform\\prototype\\prototype\\circle.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{278D8079-CFF0-48BC-9869-2689EBBCA728}|prototype\\prototype.csproj|solutionrelative:prototype\\circle.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 3,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "Circle.cs",
+              "DocumentMoniker": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\prototype\\prototype\\Circle.cs",
+              "RelativeDocumentMoniker": "prototype\\Circle.cs",
+              "ToolTip": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\prototype\\prototype\\Circle.cs",
+              "RelativeToolTip": "prototype\\Circle.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAwAAAAdAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-09-30T04:16:27.991Z",
+              "IsPinned": true,
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "Square.cs",
+              "DocumentMoniker": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\prototype\\prototype\\Square.cs",
+              "RelativeDocumentMoniker": "prototype\\Square.cs",
+              "ToolTip": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\prototype\\prototype\\Square.cs",
+              "RelativeToolTip": "prototype\\Square.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABgAAAA3AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-09-30T04:25:24.494Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "ShapePrototype.cs",
+              "DocumentMoniker": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\prototype\\prototype\\ShapePrototype.cs",
+              "RelativeDocumentMoniker": "prototype\\ShapePrototype.cs",
+              "ToolTip": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\prototype\\prototype\\ShapePrototype.cs",
+              "RelativeToolTip": "prototype\\ShapePrototype.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAwAAAAFAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-09-30T04:13:04.932Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\prototype\\prototype\\Program.cs",
+              "RelativeDocumentMoniker": "prototype\\Program.cs",
+              "ToolTip": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\prototype\\prototype\\Program.cs",
+              "RelativeToolTip": "prototype\\Program.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA8AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-09-30T04:10:01.521Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

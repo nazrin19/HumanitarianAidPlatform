@@ -1,0 +1,101 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{30E006FE-DF3C-4145-9866-312AD684B98E}|ConsoleApp1\\ConsoleApp1.csproj|c:\\users\\lenovo\\source\\repos\\humanitarianaidplatform\\consoleapp1\\consoleapp1\\servicerobot.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{30E006FE-DF3C-4145-9866-312AD684B98E}|ConsoleApp1\\ConsoleApp1.csproj|solutionrelative:consoleapp1\\servicerobot.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{30E006FE-DF3C-4145-9866-312AD684B98E}|ConsoleApp1\\ConsoleApp1.csproj|C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\consoleapp1\\irobotprototype.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{30E006FE-DF3C-4145-9866-312AD684B98E}|ConsoleApp1\\ConsoleApp1.csproj|solutionrelative:consoleapp1\\irobotprototype.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{30E006FE-DF3C-4145-9866-312AD684B98E}|ConsoleApp1\\ConsoleApp1.csproj|C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\consoleapp1\\entertainmentrobot.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{30E006FE-DF3C-4145-9866-312AD684B98E}|ConsoleApp1\\ConsoleApp1.csproj|solutionrelative:consoleapp1\\entertainmentrobot.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{30E006FE-DF3C-4145-9866-312AD684B98E}|ConsoleApp1\\ConsoleApp1.csproj|C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\consoleapp1\\industrialrobot.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{30E006FE-DF3C-4145-9866-312AD684B98E}|ConsoleApp1\\ConsoleApp1.csproj|solutionrelative:consoleapp1\\industrialrobot.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{30E006FE-DF3C-4145-9866-312AD684B98E}|ConsoleApp1\\ConsoleApp1.csproj|C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\consoleapp1\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{30E006FE-DF3C-4145-9866-312AD684B98E}|ConsoleApp1\\ConsoleApp1.csproj|solutionrelative:consoleapp1\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 2,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "EntertainmentRobot.cs",
+              "DocumentMoniker": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\ConsoleApp1\\EntertainmentRobot.cs",
+              "RelativeDocumentMoniker": "ConsoleApp1\\EntertainmentRobot.cs",
+              "ToolTip": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\ConsoleApp1\\EntertainmentRobot.cs",
+              "RelativeToolTip": "ConsoleApp1\\EntertainmentRobot.cs",
+              "ViewState": "AgIAACQAAAAAAAAAAAAAADIAAAAFAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-09-30T05:35:00.298Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "IndustrialRobot.cs",
+              "DocumentMoniker": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\ConsoleApp1\\IndustrialRobot.cs",
+              "RelativeDocumentMoniker": "ConsoleApp1\\IndustrialRobot.cs",
+              "ToolTip": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\ConsoleApp1\\IndustrialRobot.cs",
+              "RelativeToolTip": "ConsoleApp1\\IndustrialRobot.cs",
+              "ViewState": "AgIAAAMAAAAAAAAAAAAAAAwAAAAxAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-09-30T05:32:49.672Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "ServiceRobot.cs",
+              "DocumentMoniker": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\ConsoleApp1\\ServiceRobot.cs",
+              "RelativeDocumentMoniker": "ConsoleApp1\\ServiceRobot.cs",
+              "ToolTip": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\ConsoleApp1\\ServiceRobot.cs",
+              "RelativeToolTip": "ConsoleApp1\\ServiceRobot.cs",
+              "ViewState": "AgIAAAUAAAAAAAAAAAAIwCgAAAAmAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-09-30T05:31:38.478Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "IRobotPrototype.cs",
+              "DocumentMoniker": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\ConsoleApp1\\IRobotPrototype.cs",
+              "RelativeDocumentMoniker": "ConsoleApp1\\IRobotPrototype.cs",
+              "ToolTip": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\ConsoleApp1\\IRobotPrototype.cs",
+              "RelativeToolTip": "ConsoleApp1\\IRobotPrototype.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA8AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-09-30T05:30:24.119Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\ConsoleApp1\\Program.cs",
+              "RelativeDocumentMoniker": "ConsoleApp1\\Program.cs",
+              "ToolTip": "C:\\Users\\LENOVO\\source\\repos\\HumanitarianAidPlatform\\ConsoleApp1\\ConsoleApp1\\Program.cs",
+              "RelativeToolTip": "ConsoleApp1\\Program.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAEsAAAAMAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-09-30T05:29:37.372Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
