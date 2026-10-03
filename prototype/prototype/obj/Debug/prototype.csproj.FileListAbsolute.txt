@@ -1,2 +1,0 @@
-C:\Users\LENOVO\source\repos\HumanitarianAidPlatform\prototype\prototype\obj\Debug\prototype.csproj.AssemblyReference.cache
-C:\Users\LENOVO\source\repos\HumanitarianAidPlatform\prototype\prototype\obj\Debug\prototype.csproj.CoreCompileInputs.cache
