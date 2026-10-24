@@ -1,16 +1,9 @@
-﻿
-using System.Collections.Generic;
-using System.Text;
-
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace HumanitarianAidPlatform.Application.Requests;
 
 public class CreateRequestDto
 {
-    [Required]
-    public Guid CitizenId { get; set; } // temporary: will come from the JWT once auth is added
-
     [Required, StringLength(50)]
     public string Category { get; set; } = default!;
 
@@ -26,5 +19,3 @@ public class CreateRequestDto
     [StringLength(300)]
     public string? Address { get; set; }
 }
-
-

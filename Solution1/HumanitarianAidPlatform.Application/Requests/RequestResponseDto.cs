@@ -1,11 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace HumanitarianAidPlatform.Application.Requests;
+﻿namespace HumanitarianAidPlatform.Application.Requests;
 
 public record RequestResponseDto(
     Guid Id,
+    Guid CitizenId,
     string Category,
     string Description,
     string Status,
