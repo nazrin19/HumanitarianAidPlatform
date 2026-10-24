@@ -1,7 +1,11 @@
 ﻿using HumanitarianAidPlatform.Domain.Entities.Requests;
 using HumanitarianAidPlatform.Domain.Entities.Shelters;
+
+using HumanitarianAidPlatform.Domain.Entities.Notifications; // 1. Add this namespace reference
+
 using HumanitarianAidPlatform.Domain.Entities.Users;
 using Microsoft.EntityFrameworkCore;
+
 
 namespace HumanitarianAidPlatform.Infrastructure.Persistence;
 
@@ -11,6 +15,8 @@ public class AppDbContext : DbContext
 
     public DbSet<AssistanceRequest> AssistanceRequests => Set<AssistanceRequest>();
     public DbSet<Shelter> Shelters => Set<Shelter>();
+
+    public DbSet<Notification> Notifications => Set<Notification>(); // 2. Add this DbSet lin
     public DbSet<User> Users => Set<User>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<Organisation> Organisations => Set<Organisation>();
@@ -38,5 +44,5 @@ public class AppDbContext : DbContext
                 new Role { Id = Guid.Parse("00000000-0000-0000-0000-000000000008"), Name = RoleNames.PartnerOfficer },
                 new Role { Id = Guid.Parse("00000000-0000-0000-0000-000000000009"), Name = RoleNames.Admin });
         });
-    }
+   
 }
