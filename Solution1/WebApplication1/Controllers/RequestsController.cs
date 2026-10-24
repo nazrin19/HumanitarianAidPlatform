@@ -48,4 +48,20 @@ public class RequestsController : ControllerBase
         var request = await _service.GetByIdAsync(id, userId.Value, role);
         return request is null ? NotFound() : Ok(request);
     }
+
+    [HttpGet("{id:guid}/history")]
+    [Authorize]
+    [ProducesResponseType(typeof(IReadOnlyList<RequestStatusHistoryDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<IReadOnlyList<RequestStatusHistoryDto>>> GetHistory(Guid id)
+    {
+        var userId = User.GetUserId();
+        var role = User.GetRole();
+        if (userId is null || role is null)
+            return Unauthorized();
+
+        var history = await _service.GetHistoryAsync(id, userId.Value, role);
+        return history is null ? NotFound() : Ok(history);
+    }
 }

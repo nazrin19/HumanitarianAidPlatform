@@ -24,18 +24,32 @@ public class RequestService : IRequestService
 
     public async Task<RequestResponseDto> SubmitAsync(Guid citizenId, CreateRequestDto dto)
     {
+        var now = DateTime.UtcNow;
+
         var request = new AssistanceRequest
         {
             Id = Guid.NewGuid(),
             CitizenId = citizenId,
-            Category = dto.Category.Trim(),
+            Category = dto.Category!.Value,
             Description = dto.Description.Trim(),
-            Status = "Submitted",
+            Status = RequestStatus.Submitted,
             Latitude = dto.Latitude,
             Longitude = dto.Longitude,
             Address = dto.Address?.Trim(),
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = now
         };
+
+        // First timeline entry. Saved in the same database transaction as the request itself.
+        request.StatusHistory.Add(new RequestStatusHistory
+        {
+            Id = Guid.NewGuid(),
+            AssistanceRequestId = request.Id,
+            FromStatus = null,
+            ToStatus = RequestStatus.Submitted,
+            ChangedByUserId = citizenId,
+            ChangedAt = now,
+            Note = "Request submitted"
+        });
 
         await _repository.AddAsync(request);
         return ToDto(request);
@@ -44,16 +58,27 @@ public class RequestService : IRequestService
     public async Task<RequestResponseDto?> GetByIdAsync(Guid id, Guid requesterId, string requesterRole)
     {
         var request = await _repository.GetByIdAsync(id);
-        if (request is null)
-            return null;
-
-        // Business-rule check: owner or staff only. Others get "not found" so they can't tell it exists.
-        var isOwner = request.CitizenId == requesterId;
-        if (!isOwner && !StaffRoles.Contains(requesterRole))
+        if (request is null || !CanView(request, requesterId, requesterRole))
             return null;
 
         return ToDto(request);
     }
+
+    public async Task<IReadOnlyList<RequestStatusHistoryDto>?> GetHistoryAsync(Guid id, Guid requesterId, string requesterRole)
+    {
+        var request = await _repository.GetByIdAsync(id);
+        if (request is null || !CanView(request, requesterId, requesterRole))
+            return null;
+
+        var history = await _repository.GetHistoryAsync(id);
+        return history
+            .Select(h => new RequestStatusHistoryDto(h.FromStatus, h.ToStatus, h.ChangedByUserId, h.ChangedAt, h.Note))
+            .ToList();
+    }
+
+    // Owner or staff only. Everyone else gets "not found" so they can't tell the request exists.
+    private static bool CanView(AssistanceRequest request, Guid requesterId, string requesterRole) =>
+        request.CitizenId == requesterId || StaffRoles.Contains(requesterRole);
 
     private static RequestResponseDto ToDto(AssistanceRequest r) =>
         new(r.Id, r.CitizenId, r.Category, r.Description, r.Status, r.Latitude, r.Longitude, r.Address, r.CreatedAt);

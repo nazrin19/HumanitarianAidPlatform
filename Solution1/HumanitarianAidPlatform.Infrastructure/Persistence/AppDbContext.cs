@@ -10,6 +10,7 @@ public class AppDbContext : DbContext
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
     public DbSet<AssistanceRequest> AssistanceRequests => Set<AssistanceRequest>();
+    public DbSet<RequestStatusHistory> RequestStatusHistories => Set<RequestStatusHistory>();
     public DbSet<Shelter> Shelters => Set<Shelter>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Role> Roles => Set<Role>();
@@ -17,6 +18,28 @@ public class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<AssistanceRequest>(r =>
+        {
+            // Enums are stored as readable text ("Food", "Submitted") instead of numbers.
+            r.Property(x => x.Category).HasConversion<string>().HasMaxLength(30);
+            r.Property(x => x.Status).HasConversion<string>().HasMaxLength(30);
+            r.Property(x => x.Description).HasMaxLength(2000);
+            r.Property(x => x.Address).HasMaxLength(300);
+            r.HasIndex(x => x.CitizenId);
+            r.HasIndex(x => x.Status);
+            r.HasMany(x => x.StatusHistory)
+                .WithOne()
+                .HasForeignKey(h => h.AssistanceRequestId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RequestStatusHistory>(h =>
+        {
+            h.Property(x => x.FromStatus).HasConversion<string>().HasMaxLength(30);
+            h.Property(x => x.ToStatus).HasConversion<string>().HasMaxLength(30);
+            h.Property(x => x.Note).HasMaxLength(500);
+        });
+
         modelBuilder.Entity<User>(u =>
         {
             u.Property(x => x.Email).HasMaxLength(256).IsRequired();
