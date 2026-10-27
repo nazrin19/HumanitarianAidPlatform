@@ -139,6 +139,31 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                     b.ToTable("RequestStatusHistories");
                 });
 
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Resources.Resource", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("QuantityAvailable")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Resources");
+                });
+
             modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Shelters.Shelter", b =>
                 {
                     b.Property<Guid>("Id")
