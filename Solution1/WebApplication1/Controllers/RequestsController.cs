@@ -1,4 +1,7 @@
-﻿using HumanitarianAidPlatform.Application.Requests;
+﻿using HumanitarianAidPlatform.Api.Extensions;
+using HumanitarianAidPlatform.Application.Requests;
+using HumanitarianAidPlatform.Domain.Entities.Users;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HumanitarianAidPlatform.Api.Controllers;
@@ -15,20 +18,50 @@ public class RequestsController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = RoleNames.Citizen)]
     [ProducesResponseType(typeof(RequestResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<RequestResponseDto>> Submit(CreateRequestDto dto)
     {
-        var created = await _service.SubmitAsync(dto);
+        var userId = User.GetUserId();
+        if (userId is null)
+            return Unauthorized();
+
+        var created = await _service.SubmitAsync(userId.Value, dto);
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
     }
 
     [HttpGet("{id:guid}")]
+    [Authorize]
     [ProducesResponseType(typeof(RequestResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<RequestResponseDto>> GetById(Guid id)
     {
-        var request = await _service.GetByIdAsync(id);
+        var userId = User.GetUserId();
+        var role = User.GetRole();
+        if (userId is null || role is null)
+            return Unauthorized();
+
+        var request = await _service.GetByIdAsync(id, userId.Value, role);
         return request is null ? NotFound() : Ok(request);
+    }
+
+    [HttpGet("{id:guid}/history")]
+    [Authorize]
+    [ProducesResponseType(typeof(IReadOnlyList<RequestStatusHistoryDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<IReadOnlyList<RequestStatusHistoryDto>>> GetHistory(Guid id)
+    {
+        var userId = User.GetUserId();
+        var role = User.GetRole();
+        if (userId is null || role is null)
+            return Unauthorized();
+
+        var history = await _service.GetHistoryAsync(id, userId.Value, role);
+        return history is null ? NotFound() : Ok(history);
     }
 }
