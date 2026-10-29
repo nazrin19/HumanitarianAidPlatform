@@ -1,11 +1,12 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using HumanitarianAidPlatform.Domain.Entities.Requests;
 
 namespace HumanitarianAidPlatform.Application.Requests;
 
 public class CreateRequestDto
 {
-    [Required, StringLength(50)]
-    public string Category { get; set; } = default!;
+    [Required]
+    public RequestCategory? Category { get; set; } // nullable so a missing value gives a 400, not a silent "Food"
 
     [Required, StringLength(2000, MinimumLength = 10)]
     public string Description { get; set; } = default!;

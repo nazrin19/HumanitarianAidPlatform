@@ -1,11 +1,13 @@
-﻿namespace HumanitarianAidPlatform.Application.Requests;
+﻿using HumanitarianAidPlatform.Domain.Entities.Requests;
+
+namespace HumanitarianAidPlatform.Application.Requests;
 
 public record RequestResponseDto(
     Guid Id,
     Guid CitizenId,
-    string Category,
+    RequestCategory Category,
     string Description,
-    string Status,
+    RequestStatus Status,
     double? Latitude,
     double? Longitude,
     string? Address,

@@ -16,12 +16,17 @@ public class RequestRepository : IRequestRepository
 
     public async Task AddAsync(AssistanceRequest request)
     {
-        _db.AssistanceRequests.Add(request);
+        _db.AssistanceRequests.Add(request); // also saves the history entries attached to it
         await _db.SaveChangesAsync();
     }
 
     public async Task<AssistanceRequest?> GetByIdAsync(Guid id) =>
         await _db.AssistanceRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id);
+
+    public async Task<IReadOnlyList<RequestStatusHistory>> GetHistoryAsync(Guid requestId) =>
+        await _db.RequestStatusHistories
+            .AsNoTracking()
+            .Where(h => h.AssistanceRequestId == requestId)
+            .OrderBy(h => h.ChangedAt)
+            .ToListAsync();
 }
-
-
