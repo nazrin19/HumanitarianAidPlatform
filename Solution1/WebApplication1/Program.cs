@@ -1,3 +1,5 @@
+
+using System;
 using System.Text;
 using System.Text.Json.Serialization;
 
@@ -34,7 +36,7 @@ builder.Services.AddOpenApi(options =>
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
 });
 
-// Database
+// Database configuration
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("Default")));
@@ -47,9 +49,15 @@ var jwt = builder.Configuration
     .GetSection(JwtSettings.SectionName)
     .Get<JwtSettings>()
     ?? throw new InvalidOperationException(
-        "Missing 'Jwt' section in appsettings.json");
+        "Missing 'Jwt' section in configuration");
 
-// Authentication
+if (string.IsNullOrWhiteSpace(jwt.Key))
+{
+    throw new InvalidOperationException(
+        "JWT signing key is missing. Check User Secrets.");
+}
+
+// Authentication configuration
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -113,7 +121,11 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-app.UseHttpsRedirection();
+// HTTPS redirection outside local Development
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseAuthentication();
 app.UseAuthorization();
