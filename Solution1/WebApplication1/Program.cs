@@ -106,6 +106,13 @@ builder.Services.AddScoped<ShelterService>();
 builder.Services.AddScoped<IResourceRepository, ResourceRepository>();
 builder.Services.AddScoped<ResourceService>();
 
+// Resource Allocation services
+builder.Services.AddScoped<
+    IResourceAllocationRepository,
+    ResourceAllocationRepository>();
+
+builder.Services.AddScoped<ResourceAllocationService>();
+
 var app = builder.Build();
 
 // API documentation

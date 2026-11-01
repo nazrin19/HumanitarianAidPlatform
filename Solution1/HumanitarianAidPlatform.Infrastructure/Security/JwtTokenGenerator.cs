@@ -1,12 +1,13 @@
-﻿using System;
+﻿
+using System;
 using System.Collections.Generic;
 using System.Text;
-
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
+
 using HumanitarianAidPlatform.Application.Auth;
 using HumanitarianAidPlatform.Domain.Entities.Users;
+
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
@@ -32,9 +33,15 @@ public class JwtTokenGenerator : IJwtTokenGenerator
             new("role", roleName)
         };
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Key));
-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var expiresAt = DateTime.UtcNow.AddMinutes(_settings.ExpiryMinutes);
+        var key = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(_settings.Key));
+
+        var credentials = new SigningCredentials(
+            key,
+            SecurityAlgorithms.HmacSha256);
+
+        var expiresAt = DateTime.UtcNow.AddMinutes(
+            _settings.ExpiryMinutes);
 
         var token = new JwtSecurityToken(
             issuer: _settings.Issuer,
@@ -44,6 +51,9 @@ public class JwtTokenGenerator : IJwtTokenGenerator
             expires: expiresAt,
             signingCredentials: credentials);
 
-        return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+        return (
+            new JwtSecurityTokenHandler().WriteToken(token),
+            expiresAt
+        );
     }
 }

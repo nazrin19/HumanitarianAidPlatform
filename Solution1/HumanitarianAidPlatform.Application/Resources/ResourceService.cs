@@ -1,4 +1,10 @@
-﻿using HumanitarianAidPlatform.Application.Resources.DTOs;
+﻿
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+
+using HumanitarianAidPlatform.Application.Resources.DTOs;
 using HumanitarianAidPlatform.Domain.Entities.Resources;
 
 namespace HumanitarianAidPlatform.Application.Resources;
@@ -32,9 +38,12 @@ public class ResourceService
     public async Task<ResourceDto> CreateAsync(ResourceDto dto)
     {
         if (dto.QuantityAvailable < 0)
+        {
             throw new ArgumentOutOfRangeException(
                 nameof(dto.QuantityAvailable),
+                dto.QuantityAvailable,
                 "Quantity cannot be negative.");
+        }
 
         var resource = new Resource
         {
@@ -56,14 +65,19 @@ public class ResourceService
         ResourceDto dto)
     {
         if (dto.QuantityAvailable < 0)
+        {
             throw new ArgumentOutOfRangeException(
                 nameof(dto.QuantityAvailable),
+                dto.QuantityAvailable,
                 "Quantity cannot be negative.");
+        }
 
         var resource = await _repository.GetByIdAsync(id);
 
         if (resource is null)
+        {
             return null;
+        }
 
         resource.Name = dto.Name.Trim();
         resource.Category = dto.Category.Trim();
@@ -81,7 +95,9 @@ public class ResourceService
         var resource = await _repository.GetByIdAsync(id);
 
         if (resource is null)
+        {
             return false;
+        }
 
         await _repository.DeleteAsync(resource);
 

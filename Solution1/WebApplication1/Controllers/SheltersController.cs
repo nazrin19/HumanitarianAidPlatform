@@ -1,5 +1,12 @@
-﻿using HumanitarianAidPlatform.Application.Shelters;
+﻿
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+
+using HumanitarianAidPlatform.Application.Shelters;
 using HumanitarianAidPlatform.Application.Shelters.DTOs;
+
 using Microsoft.AspNetCore.Mvc;
 
 namespace HumanitarianAidPlatform.Api.Controllers;
@@ -20,6 +27,7 @@ public class SheltersController : ControllerBase
     public async Task<ActionResult<List<ShelterDto>>> GetAll()
     {
         var shelters = await _service.GetAllAsync();
+
         return Ok(shelters);
     }
 
@@ -60,6 +68,57 @@ public class SheltersController : ControllerBase
             return NotFound();
 
         return Ok(updated);
+    }
+
+    // PATCH: api/shelters/{id}/occupancy
+    [HttpPatch("{id:guid}/occupancy")]
+    public async Task<ActionResult<ShelterDto>> ChangeOccupancy(
+        Guid id,
+        [FromBody] ChangeShelterOccupancyDto dto,
+        CancellationToken cancellationToken)
+    {
+        var result = await _service.ChangeOccupancyAsync(
+            id,
+            dto.Change,
+            cancellationToken);
+
+        if (result.Result == ShelterOccupancyUpdateResult.Updated)
+        {
+            return Ok(result.Shelter);
+        }
+
+        switch (result.Result)
+        {
+            case ShelterOccupancyUpdateResult.NotFound:
+                return NotFound(new
+                {
+                    message = "Shelter not found."
+                });
+
+            case ShelterOccupancyUpdateResult.InvalidChange:
+                return BadRequest(new
+                {
+                    message = "Occupancy change must be a valid non-zero number."
+                });
+
+            case ShelterOccupancyUpdateResult.CapacityExceeded:
+                return Conflict(new
+                {
+                    message = "Occupancy cannot exceed shelter capacity."
+                });
+
+            case ShelterOccupancyUpdateResult.WouldBecomeNegative:
+                return BadRequest(new
+                {
+                    message = "Occupancy cannot become negative."
+                });
+
+            default:
+                return StatusCode(500, new
+                {
+                    message = "An unexpected occupancy update error occurred."
+                });
+        }
     }
 
     // DELETE: api/shelters/{id}

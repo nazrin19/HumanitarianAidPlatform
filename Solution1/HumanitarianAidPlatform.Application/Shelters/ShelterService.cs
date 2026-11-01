@@ -1,4 +1,11 @@
-﻿using HumanitarianAidPlatform.Application.Shelters.DTOs;
+﻿
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
+using HumanitarianAidPlatform.Application.Shelters.DTOs;
 using HumanitarianAidPlatform.Domain.Entities.Shelters;
 
 namespace HumanitarianAidPlatform.Application.Shelters;
@@ -12,18 +19,23 @@ public class ShelterService
         _repository = repository;
     }
 
+    // GET ALL
     public async Task<List<ShelterDto>> GetAllAsync()
     {
         var shelters = await _repository.GetAllAsync();
+
         return shelters.Select(MapToDto).ToList();
     }
 
+    // GET BY ID
     public async Task<ShelterDto?> GetByIdAsync(Guid id)
     {
         var shelter = await _repository.GetByIdAsync(id);
+
         return shelter is null ? null : MapToDto(shelter);
     }
 
+    // CREATE
     public async Task<ShelterDto> CreateAsync(ShelterDto dto)
     {
         var shelter = new Shelter
@@ -37,10 +49,14 @@ public class ShelterService
         };
 
         await _repository.AddAsync(shelter);
+
         return MapToDto(shelter);
     }
 
-    public async Task<ShelterDto?> UpdateAsync(Guid id, ShelterDto dto)
+    // UPDATE
+    public async Task<ShelterDto?> UpdateAsync(
+        Guid id,
+        ShelterDto dto)
     {
         var shelter = await _repository.GetByIdAsync(id);
 
@@ -54,9 +70,11 @@ public class ShelterService
         shelter.Longitude = dto.Longitude;
 
         await _repository.UpdateAsync(shelter);
+
         return MapToDto(shelter);
     }
 
+    // DELETE
     public async Task<bool> DeleteAsync(Guid id)
     {
         var shelter = await _repository.GetByIdAsync(id);
@@ -65,9 +83,50 @@ public class ShelterService
             return false;
 
         await _repository.DeleteAsync(shelter);
+
         return true;
     }
 
+    // CHANGE SHELTER OCCUPANCY
+    public async Task<(
+        ShelterDto? Shelter,
+        ShelterOccupancyUpdateResult Result)> ChangeOccupancyAsync(
+            Guid id,
+            int change,
+            CancellationToken cancellationToken = default)
+    {
+        if (id == Guid.Empty ||
+            change == 0 ||
+            change == int.MinValue)
+        {
+            return (
+                null,
+                ShelterOccupancyUpdateResult.InvalidChange);
+        }
+
+        var result = await _repository.ChangeOccupancyAsync(
+            id,
+            change,
+            cancellationToken);
+
+        if (result != ShelterOccupancyUpdateResult.Updated)
+        {
+            return (null, result);
+        }
+
+        var updatedShelter = await _repository.GetByIdAsync(id);
+
+        if (updatedShelter is null)
+        {
+            return (
+                null,
+                ShelterOccupancyUpdateResult.NotFound);
+        }
+
+        return (MapToDto(updatedShelter), result);
+    }
+
+    // SHELTER RECOMMENDATIONS
     public async Task<List<ShelterRecommendationDto>>
         GetRecommendationsAsync(
             double? latitude,
@@ -75,9 +134,11 @@ public class ShelterService
             int requiredCapacity = 1)
     {
         if (requiredCapacity < 1)
+        {
             throw new ArgumentOutOfRangeException(
                 nameof(requiredCapacity),
                 "Required capacity must be at least 1.");
+        }
 
         var shelters = await _repository.GetAllAsync();
 
@@ -89,6 +150,7 @@ public class ShelterService
                 AvailableCapacity = s.Capacity - s.CurrentOccupancy,
                 Latitude = s.Latitude,
                 Longitude = s.Longitude,
+
                 DistanceKm =
                     latitude.HasValue &&
                     longitude.HasValue &&
@@ -117,6 +179,7 @@ public class ShelterService
             .ToList();
     }
 
+    // DTO MAPPING
     private static ShelterDto MapToDto(Shelter shelter)
     {
         return new ShelterDto
@@ -130,6 +193,7 @@ public class ShelterService
         };
     }
 
+    // DISTANCE CALCULATION
     private static double CalculateDistanceKm(
         double latitude1,
         double longitude1,
@@ -140,8 +204,12 @@ public class ShelterService
 
         var lat1 = latitude1 * Math.PI / 180.0;
         var lat2 = latitude2 * Math.PI / 180.0;
-        var deltaLat = (latitude2 - latitude1) * Math.PI / 180.0;
-        var deltaLon = (longitude2 - longitude1) * Math.PI / 180.0;
+
+        var deltaLat =
+            (latitude2 - latitude1) * Math.PI / 180.0;
+
+        var deltaLon =
+            (longitude2 - longitude1) * Math.PI / 180.0;
 
         var a =
             Math.Pow(Math.Sin(deltaLat / 2.0), 2) +
