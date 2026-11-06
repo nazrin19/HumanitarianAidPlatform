@@ -5,6 +5,10 @@ using HumanitarianAidPlatform.Infrastructure.Persistence;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Requests;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Users;
 using HumanitarianAidPlatform.Infrastructure.Security;
+using HumanitarianAidPlatform.Application.Donors;
+using HumanitarianAidPlatform.Application.Volunteers;
+using HumanitarianAidPlatform.Infrastructure.Repositories.Donors;
+using HumanitarianAidPlatform.Infrastructure.Repositories.Volunteers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -61,6 +65,12 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
+
+// Donors & Volunteers
+builder.Services.AddScoped<IDonorRepository, DonorRepository>();
+builder.Services.AddScoped<IDonorService, DonorService>();
+builder.Services.AddScoped<IVolunteerRepository, VolunteerRepository>();
+builder.Services.AddScoped<IVolunteerService, VolunteerService>();
 
 var app = builder.Build();
 

@@ -4,6 +4,8 @@ using HumanitarianAidPlatform.Domain.Entities.Shelters;
 using HumanitarianAidPlatform.Domain.Entities.Notifications;
 using HumanitarianAidPlatform.Domain.Entities.Resources;
 using HumanitarianAidPlatform.Domain.Entities.Users;
+using HumanitarianAidPlatform.Domain.Entities.Donors;
+using HumanitarianAidPlatform.Domain.Entities.Volunteers;
 using Microsoft.EntityFrameworkCore;
 
 namespace HumanitarianAidPlatform.Infrastructure.Persistence;
@@ -32,6 +34,17 @@ public class AppDbContext : DbContext
     public DbSet<Role> Roles => Set<Role>();
 
     public DbSet<Organisation> Organisations => Set<Organisation>();
+
+    // --- Donor & Volunteer modules ---
+    public DbSet<Donor> Donors => Set<Donor>();
+
+    public DbSet<Donation> Donations => Set<Donation>();
+
+    public DbSet<Campaign> Campaigns => Set<Campaign>();
+
+    public DbSet<Volunteer> Volunteers => Set<Volunteer>();
+
+    public DbSet<VolunteerTask> VolunteerTasks => Set<VolunteerTask>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -145,6 +158,27 @@ public class AppDbContext : DbContext
                     Id = Guid.Parse("00000000-0000-0000-0000-000000000009"),
                     Name = RoleNames.Admin
                 });
+
+        });
+        // Donor & Volunteer configuration
+        modelBuilder.Entity<Donation>(d =>
+        {
+            d.Property(x => x.Amount).HasPrecision(18, 2);
+            d.Property(x => x.Currency).HasMaxLength(3);
+        });
+
+        modelBuilder.Entity<Donor>(d =>
+        {
+            d.Property(x => x.FullName).HasMaxLength(150).IsRequired();
+            d.Property(x => x.Email).HasMaxLength(256).IsRequired();
+            d.HasIndex(x => x.Email).IsUnique();
+        });
+
+        modelBuilder.Entity<Volunteer>(v =>
+        {
+            v.Property(x => x.FullName).HasMaxLength(150).IsRequired();
+            v.Property(x => x.Email).HasMaxLength(256).IsRequired();
+            v.HasIndex(x => x.Email).IsUnique();
         });
     }
 }
