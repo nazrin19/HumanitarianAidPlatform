@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace HumanitarianAidPlatform.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class AddResources : Migration
+    public partial class SyncAppDbContextModel : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)

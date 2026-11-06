@@ -1,3 +1,4 @@
+
 using System;
 using HumanitarianAidPlatform.Domain.Entities.Requests;
 using HumanitarianAidPlatform.Domain.Entities.Shelters;
@@ -23,17 +24,26 @@ public class AppDbContext : DbContext
     public DbSet<RequestStatusHistory> RequestStatusHistories =>
         Set<RequestStatusHistory>();
 
-    public DbSet<Shelter> Shelters => Set<Shelter>();
+    public DbSet<Shelter> Shelters =>
+        Set<Shelter>();
 
-    public DbSet<Resource> Resources => Set<Resource>();
+    public DbSet<Resource> Resources =>
+        Set<Resource>();
 
-    public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<ResourceAllocation> ResourceAllocations =>
+        Set<ResourceAllocation>();
 
-    public DbSet<User> Users => Set<User>();
+    public DbSet<Notification> Notifications =>
+        Set<Notification>();
 
-    public DbSet<Role> Roles => Set<Role>();
+    public DbSet<User> Users =>
+        Set<User>();
 
-    public DbSet<Organisation> Organisations => Set<Organisation>();
+    public DbSet<Role> Roles =>
+        Set<Role>();
+
+    public DbSet<Organisation> Organisations =>
+        Set<Organisation>();
 
     // --- Donor & Volunteer modules ---
     public DbSet<Donor> Donors => Set<Donor>();
@@ -89,6 +99,27 @@ public class AppDbContext : DbContext
 
             h.Property(x => x.Note)
                 .HasMaxLength(500);
+        });
+
+        // Resource allocation configuration
+        modelBuilder.Entity<ResourceAllocation>(a =>
+        {
+            a.HasKey(x => x.Id);
+
+            a.Property(x => x.QuantityAllocated)
+                .IsRequired();
+
+            // Each allocation belongs to one resource
+            a.HasOne<Resource>()
+                .WithMany()
+                .HasForeignKey(x => x.ResourceId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Each allocation belongs to one assistance request
+            a.HasOne<AssistanceRequest>()
+                .WithMany()
+                .HasForeignKey(x => x.AssistanceRequestId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // User configuration
