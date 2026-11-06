@@ -15,7 +15,14 @@ using HumanitarianAidPlatform.Infrastructure.Repositories.Users;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Shelters;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Resources;
 using HumanitarianAidPlatform.Infrastructure.Security;
+<<<<<<< HEAD
+using HumanitarianAidPlatform.Application.Donors;
+using HumanitarianAidPlatform.Application.Volunteers;
+using HumanitarianAidPlatform.Infrastructure.Repositories.Donors;
+using HumanitarianAidPlatform.Infrastructure.Repositories.Volunteers;
+=======
 
+>>>>>>> 324a544ad02db004f07c7c5932e04c0a17534eda
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -98,6 +105,13 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
 
+<<<<<<< HEAD
+// Donors & Volunteers
+builder.Services.AddScoped<IDonorRepository, DonorRepository>();
+builder.Services.AddScoped<IDonorService, DonorService>();
+builder.Services.AddScoped<IVolunteerRepository, VolunteerRepository>();
+builder.Services.AddScoped<IVolunteerService, VolunteerService>();
+=======
 // Shelter services
 builder.Services.AddScoped<IShelterRepository, ShelterRepository>();
 builder.Services.AddScoped<ShelterService>();
@@ -112,6 +126,7 @@ builder.Services.AddScoped<
     ResourceAllocationRepository>();
 
 builder.Services.AddScoped<ResourceAllocationService>();
+>>>>>>> 324a544ad02db004f07c7c5932e04c0a17534eda
 
 var app = builder.Build();
 
