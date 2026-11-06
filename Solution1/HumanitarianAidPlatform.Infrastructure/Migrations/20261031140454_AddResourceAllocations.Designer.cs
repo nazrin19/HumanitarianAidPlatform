@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace HumanitarianAidPlatform.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261027143933_AddResources")]
-    partial class AddResources
+    [Migration("20261031140454_AddResourceAllocations")]
+    partial class AddResourceAllocations
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -165,6 +165,33 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Resources");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Resources.ResourceAllocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("AllocatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("AssistanceRequestId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("QuantityAllocated")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("ResourceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssistanceRequestId");
+
+                    b.HasIndex("ResourceId");
+
+                    b.ToTable("ResourceAllocations");
                 });
 
             modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Shelters.Shelter", b =>
@@ -325,6 +352,21 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                         .WithMany("StatusHistory")
                         .HasForeignKey("AssistanceRequestId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Resources.ResourceAllocation", b =>
+                {
+                    b.HasOne("HumanitarianAidPlatform.Domain.Entities.Requests.AssistanceRequest", null)
+                        .WithMany()
+                        .HasForeignKey("AssistanceRequestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("HumanitarianAidPlatform.Domain.Entities.Resources.Resource", null)
+                        .WithMany()
+                        .HasForeignKey("ResourceId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
