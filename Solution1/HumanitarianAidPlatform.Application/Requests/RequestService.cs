@@ -1,4 +1,5 @@
-﻿using HumanitarianAidPlatform.Domain.Entities.Requests;
+﻿using HumanitarianAidPlatform.Application.Ai;
+using HumanitarianAidPlatform.Domain.Entities.Requests;
 using HumanitarianAidPlatform.Domain.Entities.Users;
 
 namespace HumanitarianAidPlatform.Application.Requests;
@@ -15,11 +16,21 @@ public class RequestService : IRequestService
         RoleNames.Admin
     };
 
-    private readonly IRequestRepository _repository;
+    // Roles that may see AI recommendations (they review and decide on them).
+    private static readonly HashSet<string> ReviewerRoles = new()
+    {
+        RoleNames.Coordinator,
+        RoleNames.CaseManager,
+        RoleNames.Admin
+    };
 
-    public RequestService(IRequestRepository repository)
+    private readonly IRequestRepository _repository;
+    private readonly IUrgencyClassifier _classifier;
+
+    public RequestService(IRequestRepository repository, IUrgencyClassifier classifier)
     {
         _repository = repository;
+        _classifier = classifier;
     }
 
     public async Task<RequestResponseDto> SubmitAsync(Guid citizenId, CreateRequestDto dto)
@@ -39,7 +50,6 @@ public class RequestService : IRequestService
             CreatedAt = now
         };
 
-        // First timeline entry. Saved in the same database transaction as the request itself.
         request.StatusHistory.Add(new RequestStatusHistory
         {
             Id = Guid.NewGuid(),
@@ -51,7 +61,47 @@ public class RequestService : IRequestService
             Note = "Request submitted"
         });
 
+        // The request is saved first, so it is never lost even if classification fails.
         await _repository.AddAsync(request);
+
+        try
+        {
+            var result = await _classifier.ClassifyAsync(request);
+            var classifiedAt = DateTime.UtcNow;
+
+            var recommendation = new AiRecommendation
+            {
+                Id = Guid.NewGuid(),
+                AssistanceRequestId = request.Id,
+                SuggestedCategory = result.SuggestedCategory,
+                UrgencyScore = result.UrgencyScore,
+                UrgencyLevel = result.UrgencyLevel,
+                Confidence = result.Confidence,
+                Rationale = result.Rationale,
+                ModelName = _classifier.Name,
+                GeneratedAt = classifiedAt
+            };
+
+            var history = new RequestStatusHistory
+            {
+                Id = Guid.NewGuid(),
+                AssistanceRequestId = request.Id,
+                FromStatus = RequestStatus.Submitted,
+                ToStatus = RequestStatus.PendingReview,
+                ChangedByUserId = null, // changed by the system, not by a person
+                ChangedAt = classifiedAt,
+                Note = $"AI recommendation ready ({_classifier.Name})"
+            };
+
+            await _repository.AttachRecommendationAsync(request.Id, recommendation, history);
+            request.Status = RequestStatus.PendingReview;
+        }
+        catch (Exception)
+        {
+            // TODO (task A4): log this and mark the request "needs manual review".
+            // For now the request stays "Submitted" and a person picks it up.
+        }
+
         return ToDto(request);
     }
 
@@ -74,6 +124,18 @@ public class RequestService : IRequestService
         return history
             .Select(h => new RequestStatusHistoryDto(h.FromStatus, h.ToStatus, h.ChangedByUserId, h.ChangedAt, h.Note))
             .ToList();
+    }
+
+    public async Task<RecommendationDto?> GetRecommendationAsync(Guid id, string requesterRole)
+    {
+        if (!ReviewerRoles.Contains(requesterRole))
+            return null;
+
+        var rec = await _repository.GetRecommendationAsync(id);
+        return rec is null
+            ? null
+            : new RecommendationDto(rec.SuggestedCategory, rec.UrgencyScore, rec.UrgencyLevel,
+                                    rec.Confidence, rec.Rationale, rec.ModelName, rec.GeneratedAt);
     }
 
     // Owner or staff only. Everyone else gets "not found" so they can't tell the request exists.

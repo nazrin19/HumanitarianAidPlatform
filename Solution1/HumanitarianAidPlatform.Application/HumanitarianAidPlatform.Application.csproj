@@ -10,4 +10,8 @@
     <ProjectReference Include="..\HumanitarianAidPlatform.Domain\HumanitarianAidPlatform.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Ai\" />
+  </ItemGroup>
+
 </Project>

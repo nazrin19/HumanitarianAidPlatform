@@ -29,4 +29,17 @@ public class RequestRepository : IRequestRepository
             .Where(h => h.AssistanceRequestId == requestId)
             .OrderBy(h => h.ChangedAt)
             .ToListAsync();
+
+    // Recommendation, status change and history entry are saved together in one transaction.
+    public async Task AttachRecommendationAsync(Guid requestId, AiRecommendation recommendation, RequestStatusHistory history)
+    {
+        var request = await _db.AssistanceRequests.FirstAsync(r => r.Id == requestId);
+        request.Status = history.ToStatus;
+        _db.AiRecommendations.Add(recommendation);
+        _db.RequestStatusHistories.Add(history);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<AiRecommendation?> GetRecommendationAsync(Guid requestId) =>
+        await _db.AiRecommendations.AsNoTracking().FirstOrDefaultAsync(a => a.AssistanceRequestId == requestId);
 }

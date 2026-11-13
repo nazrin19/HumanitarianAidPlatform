@@ -12,6 +12,7 @@ public class AppDbContext : DbContext
 
     public DbSet<AssistanceRequest> AssistanceRequests => Set<AssistanceRequest>();
     public DbSet<RequestStatusHistory> RequestStatusHistories => Set<RequestStatusHistory>();
+    public DbSet<AiRecommendation> AiRecommendations => Set<AiRecommendation>();
     public DbSet<Shelter> Shelters => Set<Shelter>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<User> Users => Set<User>();
@@ -40,6 +41,18 @@ public class AppDbContext : DbContext
             h.Property(x => x.FromStatus).HasConversion<string>().HasMaxLength(30);
             h.Property(x => x.ToStatus).HasConversion<string>().HasMaxLength(30);
             h.Property(x => x.Note).HasMaxLength(500);
+        });
+        modelBuilder.Entity<AiRecommendation>(a =>
+        {
+            a.Property(x => x.SuggestedCategory).HasConversion<string>().HasMaxLength(30);
+            a.Property(x => x.UrgencyLevel).HasConversion<string>().HasMaxLength(30);
+            a.Property(x => x.Rationale).HasMaxLength(2000);
+            a.Property(x => x.ModelName).HasMaxLength(50);
+            a.HasIndex(x => x.AssistanceRequestId).IsUnique(); // one recommendation per request for now
+            a.HasOne<AssistanceRequest>()
+                .WithMany()
+                .HasForeignKey(x => x.AssistanceRequestId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<User>(u =>

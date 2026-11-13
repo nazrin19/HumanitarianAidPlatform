@@ -64,4 +64,20 @@ public class RequestsController : ControllerBase
         var history = await _service.GetHistoryAsync(id, userId.Value, role);
         return history is null ? NotFound() : Ok(history);
     }
+
+    [HttpGet("{id:guid}/recommendation")]
+    [Authorize(Roles = $"{RoleNames.Coordinator},{RoleNames.CaseManager},{RoleNames.Admin}")]
+    [ProducesResponseType(typeof(RecommendationDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<RecommendationDto>> GetRecommendation(Guid id)
+    {
+        var role = User.GetRole();
+        if (role is null)
+            return Unauthorized();
+
+        var recommendation = await _service.GetRecommendationAsync(id, role);
+        return recommendation is null ? NotFound() : Ok(recommendation);
+    }
 }

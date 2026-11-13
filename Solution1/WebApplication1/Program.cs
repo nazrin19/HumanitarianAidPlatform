@@ -1,6 +1,10 @@
 using System.Text;
+using System.Text.Json.Serialization;
+using HumanitarianAidPlatform.Api.Swagger;
+using HumanitarianAidPlatform.Application.Ai;
 using HumanitarianAidPlatform.Application.Auth;
 using HumanitarianAidPlatform.Application.Requests;
+using HumanitarianAidPlatform.Infrastructure.Ai;
 using HumanitarianAidPlatform.Infrastructure.Persistence;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Requests;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Users;
@@ -8,8 +12,6 @@ using HumanitarianAidPlatform.Infrastructure.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using HumanitarianAidPlatform.Api.Swagger;
-using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -55,6 +57,13 @@ builder.Services.AddAuthorization();
 // Requests
 builder.Services.AddScoped<IRequestRepository, RequestRepository>();
 builder.Services.AddScoped<IRequestService, RequestService>();
+
+// AI classifier (Strategy pattern): the "Ai:Classifier" setting picks which one is used.
+var classifierName = builder.Configuration["Ai:Classifier"] ?? "RuleBased";
+if (classifierName == "Default")
+    builder.Services.AddSingleton<IUrgencyClassifier, DefaultUrgencyClassifier>();
+else
+    builder.Services.AddSingleton<IUrgencyClassifier, RuleBasedUrgencyClassifier>();
 
 // Auth
 builder.Services.AddScoped<IUserRepository, UserRepository>();
