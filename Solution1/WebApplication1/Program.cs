@@ -24,6 +24,11 @@ using HumanitarianAidPlatform.Infrastructure.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using HumanitarianAidPlatform.Application.Campaigns;
+using HumanitarianAidPlatform.Infrastructure.Repositories.Campaigns;
+using HumanitarianAidPlatform.Application.Donations;
+using HumanitarianAidPlatform.Infrastructure.Repositories.Donations;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -142,6 +147,12 @@ builder.Services.AddScoped<IDonorRepository, DonorRepository>();
 builder.Services.AddScoped<IDonorService, DonorService>();
 builder.Services.AddScoped<IVolunteerRepository, VolunteerRepository>();
 builder.Services.AddScoped<IVolunteerService, VolunteerService>();
+builder.Services.AddScoped<ICampaignRepository, CampaignRepository>();
+builder.Services.AddScoped<ICampaignService, CampaignService>();
+builder.Services.AddScoped<IDonationRepository, DonationRepository>();
+builder.Services.AddScoped<IDonationService, DonationService>();
+builder.Services.AddScoped<IVolunteerTaskRepository, VolunteerTaskRepository>();
+builder.Services.AddScoped<IVolunteerTaskService, VolunteerTaskService>();
 
 var app = builder.Build();
 
