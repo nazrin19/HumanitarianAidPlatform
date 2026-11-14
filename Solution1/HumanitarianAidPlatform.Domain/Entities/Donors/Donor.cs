@@ -4,7 +4,7 @@ using System.Text;
 
 namespace HumanitarianAidPlatform.Domain.Entities.Donors
 {
-    internal class Donor
+    public class Donor
     {
         public Guid Id { get; set; }
         public string FullName { get; set; } = default!;

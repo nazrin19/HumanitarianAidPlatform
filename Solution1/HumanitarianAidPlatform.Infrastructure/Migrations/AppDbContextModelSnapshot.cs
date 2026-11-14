@@ -139,6 +139,58 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                     b.ToTable("RequestStatusHistories");
                 });
 
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Resources.Resource", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("QuantityAvailable")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Resources");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Resources.ResourceAllocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("AllocatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("AssistanceRequestId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("QuantityAllocated")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("ResourceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssistanceRequestId");
+
+                    b.HasIndex("ResourceId");
+
+                    b.ToTable("ResourceAllocations");
+                });
+
             modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Shelters.Shelter", b =>
                 {
                     b.Property<Guid>("Id")
@@ -297,6 +349,21 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                         .WithMany("StatusHistory")
                         .HasForeignKey("AssistanceRequestId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Resources.ResourceAllocation", b =>
+                {
+                    b.HasOne("HumanitarianAidPlatform.Domain.Entities.Requests.AssistanceRequest", null)
+                        .WithMany()
+                        .HasForeignKey("AssistanceRequestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("HumanitarianAidPlatform.Domain.Entities.Resources.Resource", null)
+                        .WithMany()
+                        .HasForeignKey("ResourceId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

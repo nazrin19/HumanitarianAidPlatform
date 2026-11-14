@@ -4,7 +4,7 @@ using System.Text;
 
 namespace HumanitarianAidPlatform.Domain.Entities.Volunteers
 {
-    internal class VolunteerTask
+    public class VolunteerTask
     {
         public Guid Id { get; set; }
         public Guid? VolunteerId { get; set; }
