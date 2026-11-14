@@ -9,6 +9,7 @@ public enum RequestStatus
     Submitted,
     PendingReview,
     Approved,
+    Deferred,
     Assigned,
     Fulfilled,
     Rejected

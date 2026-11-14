@@ -10,11 +10,37 @@ namespace HumanitarianAidPlatform.Api.Controllers;
 [Route("api/requests")]
 public class RequestsController : ControllerBase
 {
+    private const string StaffRoles =
+        RoleNames.Coordinator + "," +
+        RoleNames.CaseManager + "," +
+        RoleNames.ResourceManager + "," +
+        RoleNames.ShelterAdmin + "," +
+        RoleNames.Admin;
+
     private readonly IRequestService _service;
 
     public RequestsController(IRequestService service)
     {
         _service = service;
+    }
+
+    [HttpGet("mine")]
+    [Authorize(Roles = RoleNames.Citizen)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetMine([FromQuery] RequestListQuery query)
+    {
+        var userId = User.GetUserId();
+        return userId is null
+            ? Unauthorized()
+            : Ok(await _service.GetMineAsync(userId.Value, query));
+    }
+
+    [HttpGet]
+    [Authorize(Roles = StaffRoles)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetForStaff([FromQuery] RequestListQuery query)
+    {
+        return Ok(await _service.GetForStaffAsync(query));
     }
 
     [HttpPost]

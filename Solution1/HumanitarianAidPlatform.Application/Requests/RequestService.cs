@@ -1,4 +1,5 @@
 ﻿using HumanitarianAidPlatform.Application.Ai;
+using HumanitarianAidPlatform.Application.Common;
 using HumanitarianAidPlatform.Domain.Entities.Requests;
 using HumanitarianAidPlatform.Domain.Entities.Users;
 
@@ -32,6 +33,26 @@ public class RequestService : IRequestService
         _repository = repository;
         _classifier = classifier;
     }
+
+    public Task<PagedResult<RequestListItemDto>> GetMineAsync(
+        Guid citizenId,
+        RequestListQuery query) =>
+        _repository.GetMineAsync(citizenId, Normalize(query));
+
+    public Task<PagedResult<RequestListItemDto>> GetForStaffAsync(
+        RequestListQuery query) =>
+        _repository.GetForStaffAsync(Normalize(query));
+
+    private static RequestListQuery Normalize(RequestListQuery query) =>
+        new()
+        {
+            Status = query.Status,
+            Urgency = query.Urgency,
+            Category = query.Category,
+            Overdue = query.Overdue,
+            Page = Math.Max(1, query.Page),
+            PageSize = Math.Clamp(query.PageSize, 1, 100)
+        };
 
     public async Task<RequestResponseDto> SubmitAsync(Guid citizenId, CreateRequestDto dto)
     {

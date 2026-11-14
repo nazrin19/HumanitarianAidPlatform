@@ -26,6 +26,9 @@ public class AppDbContext : DbContext
     public DbSet<AiRecommendation> AiRecommendations =>
         Set<AiRecommendation>();
 
+    public DbSet<AuditLog> AuditLogs =>
+        Set<AuditLog>();
+
     public DbSet<Shelter> Shelters =>
         Set<Shelter>();
 
@@ -85,6 +88,32 @@ public class AppDbContext : DbContext
             r.HasMany(x => x.StatusHistory)
                 .WithOne()
                 .HasForeignKey(h => h.AssistanceRequestId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AuditLog>(a =>
+        {
+            a.Property(x => x.Action)
+                .HasConversion<string>()
+                .HasMaxLength(30);
+
+            a.Property(x => x.AiSnapshotJson)
+                .HasColumnType("nvarchar(max)")
+                .IsRequired();
+
+            a.Property(x => x.ChangedValuesJson)
+                .HasColumnType("nvarchar(max)");
+
+            a.Property(x => x.Reason)
+                .HasMaxLength(1000);
+
+            a.HasIndex(x => x.AssistanceRequestId);
+            a.HasIndex(x => x.DecidedByUserId);
+            a.HasIndex(x => x.DecidedAt);
+
+            a.HasOne<AssistanceRequest>()
+                .WithMany()
+                .HasForeignKey(x => x.AssistanceRequestId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
