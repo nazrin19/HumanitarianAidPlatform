@@ -1,10 +1,12 @@
 using System.Text;
 using HumanitarianAidPlatform.Application.Auth;
 using HumanitarianAidPlatform.Application.Requests;
+using HumanitarianAidPlatform.Application.Notifications;
 using HumanitarianAidPlatform.Infrastructure.Persistence;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Requests;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Users;
 using HumanitarianAidPlatform.Infrastructure.Security;
+using HumanitarianAidPlatform.Infrastructure.External;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -18,6 +20,7 @@ builder.Services.AddControllers()
     {
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
+
 builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
@@ -50,6 +53,7 @@ builder.Services
             RoleClaimType = "role"
         };
     });
+
 builder.Services.AddAuthorization();
 
 // Requests
@@ -61,6 +65,11 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
+
+// Notifications
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<EmailSender>();
+builder.Services.AddScoped<SmsSender>();
 
 var app = builder.Build();
 
