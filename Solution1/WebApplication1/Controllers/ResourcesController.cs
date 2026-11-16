@@ -1,7 +1,13 @@
 ﻿
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
 using HumanitarianAidPlatform.Application.Resources;
 using HumanitarianAidPlatform.Application.Resources.DTOs;
+
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace HumanitarianAidPlatform.Api.Controllers;
 
@@ -16,7 +22,7 @@ public class ResourcesController : ControllerBase
         _service = service;
     }
 
-    // GET: api/resources
+    // GET: api/resources (Public)
     [HttpGet]
     public async Task<ActionResult<List<ResourceDto>>> GetAll()
     {
@@ -24,7 +30,7 @@ public class ResourcesController : ControllerBase
         return Ok(resources);
     }
 
-    // GET: api/resources/{id}
+    // GET: api/resources/{id} (Public)
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ResourceDto>> GetById(Guid id)
     {
@@ -36,7 +42,8 @@ public class ResourcesController : ControllerBase
         return Ok(resource);
     }
 
-    // POST: api/resources
+    // POST: api/resources (Admin, ResourceManager)
+    [Authorize(Roles = "Admin,ResourceManager")]
     [HttpPost]
     public async Task<ActionResult<ResourceDto>> Create(
         [FromBody] ResourceDto dto)
@@ -49,7 +56,8 @@ public class ResourcesController : ControllerBase
             created);
     }
 
-    // PUT: api/resources/{id}
+    // PUT: api/resources/{id} (Admin, ResourceManager)
+    [Authorize(Roles = "Admin,ResourceManager")]
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<ResourceDto>> Update(
         Guid id,
@@ -63,7 +71,8 @@ public class ResourcesController : ControllerBase
         return Ok(updated);
     }
 
-    // DELETE: api/resources/{id}
+    // DELETE: api/resources/{id} (Admin, ResourceManager)
+    [Authorize(Roles = "Admin,ResourceManager")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {

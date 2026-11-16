@@ -8,6 +8,7 @@ using HumanitarianAidPlatform.Application.Shelters;
 using HumanitarianAidPlatform.Application.Shelters.DTOs;
 
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace HumanitarianAidPlatform.Api.Controllers;
 
@@ -22,16 +23,15 @@ public class SheltersController : ControllerBase
         _service = service;
     }
 
-    // GET: api/shelters
+    // GET: api/shelters (Public)
     [HttpGet]
     public async Task<ActionResult<List<ShelterDto>>> GetAll()
     {
         var shelters = await _service.GetAllAsync();
-
         return Ok(shelters);
     }
 
-    // GET: api/shelters/{id}
+    // GET: api/shelters/{id} (Public)
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ShelterDto>> GetById(Guid id)
     {
@@ -43,7 +43,8 @@ public class SheltersController : ControllerBase
         return Ok(shelter);
     }
 
-    // POST: api/shelters
+    // POST: api/shelters (Admin, ShelterAdmin)
+    [Authorize(Roles = "Admin,ShelterAdmin")]
     [HttpPost]
     public async Task<ActionResult<ShelterDto>> Create(
         [FromBody] ShelterDto dto)
@@ -56,7 +57,8 @@ public class SheltersController : ControllerBase
             created);
     }
 
-    // PUT: api/shelters/{id}
+    // PUT: api/shelters/{id} (Admin, ShelterAdmin)
+    [Authorize(Roles = "Admin,ShelterAdmin")]
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<ShelterDto>> Update(
         Guid id,
@@ -70,7 +72,8 @@ public class SheltersController : ControllerBase
         return Ok(updated);
     }
 
-    // PATCH: api/shelters/{id}/occupancy
+    // PATCH: api/shelters/{id}/occupancy (Admin, ShelterAdmin)
+    [Authorize(Roles = "Admin,ShelterAdmin")]
     [HttpPatch("{id:guid}/occupancy")]
     public async Task<ActionResult<ShelterDto>> ChangeOccupancy(
         Guid id,
@@ -121,7 +124,8 @@ public class SheltersController : ControllerBase
         }
     }
 
-    // DELETE: api/shelters/{id}
+    // DELETE: api/shelters/{id} (Admin, ShelterAdmin)
+    [Authorize(Roles = "Admin,ShelterAdmin")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
@@ -133,7 +137,7 @@ public class SheltersController : ControllerBase
         return NoContent();
     }
 
-    // GET: api/shelters/recommendations
+    // GET: api/shelters/recommendations (Public)
     [HttpGet("recommendations")]
     public async Task<ActionResult<List<ShelterRecommendationDto>>>
         GetRecommendations(
