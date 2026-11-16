@@ -1,10 +1,11 @@
-﻿using System;
+﻿using HumanitarianAidPlatform.Application.Notifications;
+using HumanitarianAidPlatform.Infrastructure.External;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
-using HumanitarianAidPlatform.Application.Notifications;
 
-namespace HumanitarianAidPlatform.Infrastructure.External
+namespace HumanitarianAidPlatform.Infrastructure.Notifications
 {
     public class NotificationService : INotificationService
     {
