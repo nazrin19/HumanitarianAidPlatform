@@ -2,23 +2,24 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import {
-  ChangeEvent,
-  CSSProperties,
-  DragEvent,
-  FormEvent,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { FormEvent, useRef, useState } from "react";
 import styles from "./page.module.css";
 
-type Category = "Food" | "Clothing" | "Shelter" | "Medical";
+type Category =
+  | "Food"
+  | "Medicine"
+  | "Shelter"
+  | "Transport"
+  | "Medical"
+  | "Other";
 
-type UploadedFile = {
-  file: File;
-  url: string;
+type CreatedRequest = {
+  id?: string;
 };
+
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001"
+).replace(/\/+$/, "");
 
 const categories: {
   value: Category;
@@ -31,9 +32,9 @@ const categories: {
     path: "M3 11h18a9 9 0 0 1-18 0z M8 7c0-1.5 1.5-1.5 1.5-3 M12 7c0-1.5 1.5-1.5 1.5-3 M16 7c0-1.5 1.5-1.5 1.5-3",
   },
   {
-    value: "Clothing",
-    description: "Clothes, blankets, hygiene",
-    path: "M8 3 3 6l2 4 3-1v12h8V9l3 1 2-4-5-3a4 4 0 0 1-8 0z",
+    value: "Medicine",
+    description: "Prescribed and essential medicines",
+    path: "M4 12a5 5 0 0 1 5-5h6a5 5 0 0 1 0 10H9a5 5 0 0 1-5-5z M9 7v10",
   },
   {
     value: "Shelter",
@@ -41,155 +42,42 @@ const categories: {
     path: "M3 11l9-7 9 7v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z M9 21v-7h6v7",
   },
   {
+    value: "Transport",
+    description: "Transportation and evacuation",
+    path: "M3 7h12v11H3z M15 11h4l3 3v4h-7z M7 18a2 2 0 1 0 4 0 M17 18a2 2 0 1 0 4 0",
+  },
+  {
     value: "Medical",
     description: "Medicine, first aid, care",
     path: "M3.5 3.5h17v17h-17z M12 8v8 M8 12h8",
   },
+  {
+    value: "Other",
+    description: "Other essential needs",
+    path: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 8v.1 M12 11v5",
+  },
 ];
-
-const urgencyLevels = [
-  {
-    value: 1,
-    name: "Low",
-    color: "#1b7f4b",
-    background: "#ddf3e5",
-    description: "Can wait a few days.",
-  },
-  {
-    value: 2,
-    name: "Medium",
-    color: "#b25e09",
-    background: "#fff1d6",
-    description: "Needed within 24–48 hours.",
-  },
-  {
-    value: 3,
-    name: "High",
-    color: "#c2410c",
-    background: "#ffe4d6",
-    description: "Needed within about 12 hours.",
-  },
-  {
-    value: 4,
-    name: "Critical",
-    color: "#a31d1d",
-    background: "#fde8e8",
-    description: "Immediate risk to life or safety.",
-  },
-] as const;
-
-const MAX_FILES = 5;
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-
-function formatFileSize(bytes: number) {
-  return bytes > 1048576
-    ? `${(bytes / 1048576).toFixed(1)} MB`
-    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
 
 export default function RequestAidPage() {
   const [category, setCategory] = useState<Category | "">("");
-  const [urgency, setUrgency] = useState(2);
   const [location, setLocation] = useState("");
   const [directions, setDirections] = useState("");
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [peopleAffected, setPeopleAffected] = useState("");
   const [description, setDescription] = useState("");
-  const [attachments, setAttachments] = useState<UploadedFile[]>([]);
+  const [coordinates, setCoordinates] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const [categoryError, setCategoryError] = useState("");
   const [locationError, setLocationError] = useState("");
-  const [nameError, setNameError] = useState("");
-  const [phoneError, setPhoneError] = useState("");
-  const [fileError, setFileError] = useState("");
+  const [descriptionError, setDescriptionError] = useState("");
+  const [submitError, setSubmitError] = useState("");
   const [gpsNote, setGpsNote] = useState("");
-  const [isDragging, setIsDragging] = useState(false);
   const [requestId, setRequestId] = useState("");
   const [isSubmitted, setIsSubmitted] = useState(false);
-  const attachmentsRef = useRef<UploadedFile[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const firstCategoryRef = useRef<HTMLInputElement>(null);
   const locationRef = useRef<HTMLInputElement>(null);
-  const nameRef = useRef<HTMLInputElement>(null);
-  const phoneRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const urgencyInfo = urgencyLevels[urgency - 1];
-
-  useEffect(
-    () => () => {
-      attachmentsRef.current.forEach((attachment) =>
-        URL.revokeObjectURL(attachment.url),
-      );
-    },
-    [],
-  );
-
-  function updateAttachments(nextAttachments: UploadedFile[]) {
-    attachmentsRef.current = nextAttachments;
-    setAttachments(nextAttachments);
-  }
-
-  function addFiles(fileList: FileList | File[]) {
-    const nextAttachments = [...attachments];
-    const errors: string[] = [];
-
-    Array.from(fileList).forEach((file) => {
-      if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
-        errors.push(`${file.name} isn’t a photo or PDF.`);
-        return;
-      }
-
-      if (file.size > MAX_FILE_SIZE) {
-        errors.push(`${file.name} is larger than 10 MB.`);
-        return;
-      }
-
-      if (nextAttachments.length >= MAX_FILES) {
-        errors.push("You can attach up to 5 files.");
-        return;
-      }
-
-      if (
-        nextAttachments.some(
-          (attachment) =>
-            attachment.file.name === file.name &&
-            attachment.file.size === file.size,
-        )
-      ) {
-        return;
-      }
-
-      nextAttachments.push({ file, url: URL.createObjectURL(file) });
-    });
-
-    updateAttachments(nextAttachments);
-    setFileError([...new Set(errors)].join(" "));
-  }
-
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    if (event.target.files) {
-      addFiles(event.target.files);
-    }
-
-    event.target.value = "";
-  }
-
-  function handleDrop(event: DragEvent<HTMLLabelElement>) {
-    event.preventDefault();
-    setIsDragging(false);
-    addFiles(event.dataTransfer.files);
-  }
-
-  function removeFile(url: string) {
-    const removed = attachments.find((attachment) => attachment.url === url);
-    if (!removed) {
-      return;
-    }
-
-    URL.revokeObjectURL(removed.url);
-    updateAttachments(
-      attachments.filter((attachment) => attachment.url !== removed.url),
-    );
-  }
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
   function handleUseLocation() {
     if (!navigator.geolocation) {
@@ -202,13 +90,16 @@ export default function RequestAidPage() {
     setGpsNote("Finding your location…");
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const coordinates = `${position.coords.latitude.toFixed(5)}, ${position.coords.longitude.toFixed(5)}`;
+        setCoordinates({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
         setLocation((currentLocation) =>
           currentLocation.trim()
             ? currentLocation
-            : `My current location (${coordinates})`,
+            : "My current location",
         );
-        setGpsNote("Location captured. Add a landmark above if you can.");
+        setGpsNote("Location captured. Add a landmark if you can.");
       },
       () => {
         setGpsNote(
@@ -219,12 +110,13 @@ export default function RequestAidPage() {
     );
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting) return;
     setCategoryError("");
     setLocationError("");
-    setNameError("");
-    setPhoneError("");
+    setDescriptionError("");
+    setSubmitError("");
 
     if (!category) {
       setCategoryError("Choose what you need.");
@@ -232,53 +124,116 @@ export default function RequestAidPage() {
       return;
     }
 
+    const address = [location.trim(), directions.trim()]
+      .filter(Boolean)
+      .join(", ");
     if (location.trim().length < 4) {
       setLocationError("Enter a delivery location.");
       locationRef.current?.focus();
       return;
     }
 
-    if (name.trim().length < 2) {
-      setNameError("Enter your name.");
-      nameRef.current?.focus();
+    if (address.length > 300) {
+      setLocationError("Keep the address and directions within 300 characters.");
+      locationRef.current?.focus();
       return;
     }
 
-    if (!/^\+?[\d\s-]{7,}$/.test(phone.trim())) {
-      setPhoneError("Enter a valid phone number.");
-      phoneRef.current?.focus();
+    if (description.trim().length < 10) {
+      setDescriptionError("Describe your situation in at least 10 characters.");
+      descriptionRef.current?.focus();
       return;
     }
 
-    setRequestId(`Request #REQ-${1043 + Math.floor(Math.random() * 900)}`);
-    setIsSubmitted(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    const token = window.sessionStorage.getItem("authToken");
+    if (!token) {
+      setSubmitError("Please log in before submitting a request.");
+      return;
+    }
+
+    const payload = {
+      category,
+      description: description.trim(),
+      address,
+      latitude: coordinates?.latitude ?? null,
+      longitude: coordinates?.longitude ?? null,
+    };
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/requests`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const responseText = await response.text();
+      let responseBody: unknown;
+      if (responseText) {
+        try {
+          responseBody = JSON.parse(responseText);
+        } catch {
+          if (response.ok) {
+            throw new Error("The server returned an invalid request response.");
+          }
+        }
+      }
+
+      if (!response.ok) {
+        let responseMessage: string | undefined;
+        if (responseBody && typeof responseBody === "object") {
+          const body = responseBody as {
+            detail?: unknown;
+            message?: unknown;
+            title?: unknown;
+          };
+          const message = body.detail ?? body.message ?? body.title;
+          if (typeof message === "string") responseMessage = message;
+        }
+        throw new Error(
+          responseMessage ||
+            `Request failed (${response.status} ${response.statusText}).`,
+        );
+      }
+
+      if (
+        !responseBody ||
+        typeof responseBody !== "object" ||
+        typeof (responseBody as CreatedRequest).id !== "string"
+      ) {
+        throw new Error("The server response did not include a request ID.");
+      }
+
+      setRequestId(`Request #${(responseBody as CreatedRequest).id}`);
+      setIsSubmitted(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (submitError) {
+      setSubmitError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Unable to submit your request. Please try again.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   function handleSubmitAnother() {
-    attachments.forEach((attachment) =>
-      URL.revokeObjectURL(attachment.url),
-    );
-    updateAttachments([]);
     setCategory("");
-    setUrgency(2);
     setLocation("");
     setDirections("");
-    setName("");
-    setPhone("");
-    setPeopleAffected("");
     setDescription("");
+    setCoordinates(null);
     setCategoryError("");
     setLocationError("");
-    setNameError("");
-    setPhoneError("");
-    setFileError("");
+    setDescriptionError("");
+    setSubmitError("");
     setGpsNote("");
     setRequestId("");
     setIsSubmitted(false);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -325,7 +280,7 @@ export default function RequestAidPage() {
             <h1>Request Aid</h1>
             <p className={styles.lead}>
               Tell us what you need and where. A coordinator will review your
-              request, check its urgency and arrange help as quickly as possible.
+              request and arrange help as quickly as possible.
             </p>
           </div>
 
@@ -386,63 +341,9 @@ export default function RequestAidPage() {
                     </div>
                   </section>
 
-                  <section className={styles.card} aria-labelledby="urgency-title">
-                    <div className={styles.sectionHeading}>
-                      <span className={styles.number}>2</span>
-                      <h2 id="urgency-title">How urgent is it?</h2>
-                    </div>
-                    <p className={styles.hint}>
-                      Drag the slider. Coordinators review the most urgent
-                      requests first.
-                    </p>
-                    <div className={styles.urgency}>
-                      <span
-                        className={styles.urgencyPill}
-                        style={{
-                          background: urgencyInfo.background,
-                          color: urgencyInfo.color,
-                        }}
-                      >
-                        {urgencyInfo.name}
-                      </span>
-                      <span className={styles.urgencyDescription}>
-                        {urgencyInfo.description}
-                      </span>
-                    </div>
-                    <input
-                      className={styles.range}
-                      type="range"
-                      min="1"
-                      max="4"
-                      step="1"
-                      value={urgency}
-                      aria-label="Urgency level"
-                      aria-valuetext={urgencyInfo.name}
-                      style={
-                        { "--range-color": urgencyInfo.color } as CSSProperties
-                      }
-                      onChange={(event) => setUrgency(Number(event.target.value))}
-                    />
-                    <div className={styles.scale}>
-                      {urgencyLevels.map((level) => (
-                        <button
-                          className={
-                            urgency === level.value ? styles.activeScale : ""
-                          }
-                          key={level.value}
-                          type="button"
-                          aria-pressed={urgency === level.value}
-                          onClick={() => setUrgency(level.value)}
-                        >
-                          {level.name}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-
                   <section className={styles.card} aria-labelledby="location-title">
                     <div className={styles.sectionHeading}>
-                      <span className={styles.number}>3</span>
+                      <span className={styles.number}>2</span>
                       <h2 id="location-title">
                         Where should it be delivered?
                       </h2>
@@ -463,6 +364,7 @@ export default function RequestAidPage() {
                           type="text"
                           autoComplete="street-address"
                           placeholder="Street, area or landmark"
+                          maxLength={300}
                           aria-invalid={Boolean(locationError)}
                           value={location}
                           onChange={(event) => {
@@ -497,6 +399,7 @@ export default function RequestAidPage() {
                         className={styles.textInput}
                         id="request-directions"
                         type="text"
+                        maxLength={300}
                         placeholder="Gate colour, nearby building, access road…"
                         value={directions}
                         onChange={(event) => setDirections(event.target.value)}
@@ -504,190 +407,57 @@ export default function RequestAidPage() {
                     </div>
                   </section>
 
-                  <section className={styles.card} aria-labelledby="verify-title">
+                  <section className={styles.card} aria-labelledby="description-title">
                     <div className={styles.sectionHeading}>
-                      <span className={styles.number}>4</span>
-                      <h2 id="verify-title">Verify the situation</h2>
+                      <span className={styles.number}>3</span>
+                      <h2 id="description-title">Describe your situation</h2>
                     </div>
                     <p className={styles.hint}>
-                      Photos or documents of the affected site help us verify
-                      and prioritise your request. Optional, but recommended.
+                      Include what happened and any specific needs.
                     </p>
-                    <label
-                      className={`${styles.drop} ${isDragging ? styles.over : ""}`}
-                      htmlFor="request-files"
-                      onDragEnter={(event) => {
-                        event.preventDefault();
-                        setIsDragging(true);
-                      }}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDragLeave={(event) => {
-                        event.preventDefault();
-                        setIsDragging(false);
-                      }}
-                      onDrop={handleDrop}
-                    >
-                      <input
-                        ref={fileInputRef}
-                        className={styles.fileInput}
-                        id="request-files"
-                        type="file"
-                        multiple
-                        accept="image/*,application/pdf"
-                        onChange={handleFileChange}
-                      />
-                      <span className={`${styles.tile} ${styles.dropTile}`}>
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M12 16V4M7 9l5-5 5 5" />
-                          <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
-                        </svg>
-                      </span>
-                      <strong>
-                        Drag photos here or <u>browse files</u>
-                      </strong>
-                      <span>JPG, PNG or PDF · up to 5 files · 10 MB each</span>
-                    </label>
-                    <div className={styles.error} role="alert">
-                      {fileError}
-                    </div>
-                    {attachments.length > 0 && (
-                      <ul className={styles.files} aria-label="Attached files">
-                        {attachments.map((attachment) => (
-                          <li key={attachment.url}>
-                            {attachment.file.type.startsWith("image/") ? (
-                              <Image
-                                className={styles.thumbnail}
-                                src={attachment.url}
-                                alt=""
-                                width={48}
-                                height={48}
-                                unoptimized
-                              />
-                            ) : (
-                              <div className={styles.thumbnail}>PDF</div>
-                            )}
-                            <div className={styles.fileName}>
-                              {attachment.file.name}
-                              <small>
-                                {formatFileSize(attachment.file.size)}
-                              </small>
-                            </div>
-                            <button
-                              type="button"
-                              aria-label={`Remove ${attachment.file.name}`}
-                              onClick={() => removeFile(attachment.url)}
-                            >
-                              ×
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-
-                  <section className={styles.card} aria-labelledby="contact-title">
-                    <div className={styles.sectionHeading}>
-                      <span className={styles.number}>5</span>
-                      <h2 id="contact-title">Details and contact</h2>
-                    </div>
-                    <p className={styles.hint}>
-                      So we can reach you if we need more information.
-                    </p>
-                    <div className={styles.gridTwo}>
-                      <div className={styles.field}>
-                        <label className={styles.label} htmlFor="request-name">
-                          Your name
-                        </label>
-                        <input
-                          ref={nameRef}
-                          className={styles.textInput}
-                          id="request-name"
-                          type="text"
-                          autoComplete="name"
-                          placeholder="Full name"
-                          aria-invalid={Boolean(nameError)}
-                          value={name}
-                          onChange={(event) => {
-                            setName(event.target.value);
-                            setNameError("");
-                          }}
-                        />
-                        <div className={styles.error} role="alert">
-                          {nameError}
-                        </div>
-                      </div>
-                      <div className={styles.field}>
-                        <label className={styles.label} htmlFor="request-phone">
-                          Phone number
-                        </label>
-                        <input
-                          ref={phoneRef}
-                          className={styles.textInput}
-                          id="request-phone"
-                          type="tel"
-                          autoComplete="tel"
-                          placeholder="+94 7X XXX XXXX"
-                          aria-invalid={Boolean(phoneError)}
-                          value={phone}
-                          onChange={(event) => {
-                            setPhone(event.target.value);
-                            setPhoneError("");
-                          }}
-                        />
-                        <div className={styles.error} role="alert">
-                          {phoneError}
-                        </div>
-                      </div>
-                    </div>
-                    <div className={styles.field}>
-                      <label className={styles.label} htmlFor="request-people">
-                        People affected{" "}
-                        <span className={styles.optional}>(optional)</span>
-                      </label>
-                      <input
-                        className={styles.textInput}
-                        id="request-people"
-                        type="number"
-                        min="1"
-                        max="10000"
-                        placeholder="e.g. 4"
-                        value={peopleAffected}
-                        onChange={(event) =>
-                          setPeopleAffected(event.target.value)
-                        }
-                      />
-                    </div>
                     <div className={styles.field}>
                       <label className={styles.label} htmlFor="request-description">
-                        What happened?{" "}
-                        <span className={styles.optional}>(optional)</span>
+                        What happened?
                       </label>
                       <textarea
+                        ref={descriptionRef}
                         className={styles.textarea}
                         id="request-description"
-                        maxLength={400}
+                        minLength={10}
+                        maxLength={2000}
                         placeholder="Describe the situation and anything specific you need, such as baby formula or insulin."
                         value={description}
-                        onChange={(event) =>
-                          setDescription(event.target.value)
-                        }
+                        aria-invalid={Boolean(descriptionError)}
+                        onChange={(event) => {
+                          setDescription(event.target.value);
+                          setDescriptionError("");
+                        }}
                       />
+                      <div className={styles.error} role="alert">
+                        {descriptionError}
+                      </div>
                       <div className={styles.note}>
-                        {description.length}/400
+                        {description.length}/2000
                       </div>
                     </div>
                   </section>
 
                   <div className={`${styles.card} ${styles.submitPanel}`}>
+                    {submitError && (
+                      <div className={styles.error} role="alert">
+                        {submitError}
+                      </div>
+                    )}
                     <button
                       className={`${styles.button} ${styles.solid}`}
                       type="submit"
+                      disabled={isSubmitting}
                     >
-                      Submit request
+                      {isSubmitting ? "Submitting..." : "Submit request"}
                     </button>
                     <p>
-                      By submitting, you agree that coordinators may contact you
-                      about this request.
+                      By submitting, you agree that coordinators may review
+                      your request and contact you if more information is needed.
                     </p>
                   </div>
                 </form>
@@ -701,9 +471,7 @@ export default function RequestAidPage() {
                   <h2>Request received</h2>
                   <div className={styles.requestId}>{requestId}</div>
                   <p>
-                    Thank you. Your request is now in the coordinator queue, and
-                    someone will contact you on the number you gave. Keep your
-                    phone nearby.
+                    Thank you. Your request is now in the coordinator queue.
                   </p>
                   <div className={styles.doneActions}>
                     <button
@@ -733,22 +501,8 @@ export default function RequestAidPage() {
                     <dd>{category || "Not chosen"}</dd>
                   </div>
                   <div>
-                    <dt>Urgency</dt>
-                    <dd style={{ color: urgencyInfo.color }}>
-                      {urgencyInfo.name}
-                    </dd>
-                  </div>
-                  <div>
                     <dt>Location</dt>
                     <dd>{location.trim() || "Not entered"}</dd>
-                  </div>
-                  <div>
-                    <dt>Photos</dt>
-                    <dd>
-                      {attachments.length
-                        ? `${attachments.length} attached`
-                        : "None"}
-                    </dd>
                   </div>
                 </dl>
               </div>
@@ -766,7 +520,7 @@ export default function RequestAidPage() {
                 <ol className={styles.steps}>
                   <li>
                     <b>1</b>
-                    <span>We check the urgency and your photos.</span>
+                    <span>A coordinator reviews your request details.</span>
                   </li>
                   <li>
                     <b>2</b>
@@ -776,7 +530,7 @@ export default function RequestAidPage() {
                   </li>
                   <li>
                     <b>3</b>
-                    <span>You get an SMS or call with the dispatch details.</span>
+                    <span>The team coordinates the next steps with you.</span>
                   </li>
                 </ol>
               </div>

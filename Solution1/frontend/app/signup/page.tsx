@@ -5,27 +5,47 @@ import Link from "next/link";
 import { FormEvent, useRef, useState } from "react";
 import styles from "./page.module.css";
 
-type SignupField = "name" | "email" | "password" | "confirmPassword" | "terms";
+type ApplicationType = "volunteer" | "donor";
+type DonorType = "Individual" | "Corporate";
+type SignupField =
+  | "name"
+  | "email"
+  | "phone"
+  | "password"
+  | "confirmPassword"
+  | "terms";
+
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001"
+).replace(/\/+$/, "");
 
 export default function SignupPage() {
+  const [applicationType, setApplicationType] =
+    useState<ApplicationType>("volunteer");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [skills, setSkills] = useState("");
+  const [donorType, setDonorType] = useState<DonorType>("Individual");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [invalidField, setInvalidField] = useState<SignupField | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
+  const phoneRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmPasswordRef = useRef<HTMLInputElement>(null);
   const termsRef = useRef<HTMLInputElement>(null);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting) return;
     setError("");
     setIsSuccess(false);
     setInvalidField(null);
@@ -41,6 +61,13 @@ export default function SignupPage() {
       setInvalidField("email");
       setError("Enter a valid email address.");
       emailRef.current?.focus();
+      return;
+    }
+
+    if (!phone.trim()) {
+      setInvalidField("phone");
+      setError("Enter your phone number.");
+      phoneRef.current?.focus();
       return;
     }
 
@@ -65,8 +92,68 @@ export default function SignupPage() {
       return;
     }
 
-    setIsSuccess(true);
-    setError("Account created. Welcome to the community!");
+    setIsSubmitting(true);
+    try {
+      const endpoint =
+        applicationType === "volunteer" ? "volunteer" : "donor";
+      const payload =
+        applicationType === "volunteer"
+          ? {
+              fullName: name.trim(),
+              email: email.trim(),
+              password,
+              phone: phone.trim(),
+              skills: skills.trim(),
+            }
+          : {
+              fullName: name.trim(),
+              email: email.trim(),
+              password,
+              phone: phone.trim(),
+              type: donorType,
+            };
+      const response = await fetch(
+        `${API_BASE_URL}/api/auth/register/${endpoint}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        let responseMessage = responseText;
+        try {
+          const responseBody: unknown = JSON.parse(responseText);
+          if (responseBody && typeof responseBody === "object") {
+            const body = responseBody as {
+              detail?: unknown;
+              message?: unknown;
+              title?: unknown;
+            };
+            const message = body.detail ?? body.message ?? body.title;
+            if (typeof message === "string") responseMessage = message;
+          }
+        } catch {
+          // Keep the response text when the server does not return JSON.
+        }
+        throw new Error(
+          responseMessage ||
+            `Registration failed (${response.status} ${response.statusText}).`,
+        );
+      }
+
+      setIsSuccess(true);
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Unable to submit your application. Please try again.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -74,7 +161,7 @@ export default function SignupPage() {
       className={`${styles.page} min-h-screen flex items-center justify-center p-4 md:p-6`}
     >
       <div
-        className={`${styles.shell} w-full max-w-[1080px]`}
+        className={`${styles.shell} w-full max-w-270`}
       >
         <section className={styles.left}>
           <div className={styles.brand}>
@@ -118,10 +205,39 @@ export default function SignupPage() {
           <div className={styles.form}>
             <h1>Create Account</h1>
             <p className={styles.sub}>
-              Get started by filling out your details below.
+              Apply to join as a volunteer or donor.
             </p>
 
             <form noValidate onSubmit={handleSubmit}>
+              <fieldset
+                className={styles.applicationType}
+                disabled={isSubmitting || isSuccess}
+              >
+                <legend>I want to join as a</legend>
+                <div className={styles.applicationChoices}>
+                  <label>
+                    <input
+                      type="radio"
+                      name="applicationType"
+                      value="volunteer"
+                      checked={applicationType === "volunteer"}
+                      onChange={() => setApplicationType("volunteer")}
+                    />
+                    Volunteer
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="applicationType"
+                      value="donor"
+                      checked={applicationType === "donor"}
+                      onChange={() => setApplicationType("donor")}
+                    />
+                    Donor
+                  </label>
+                </div>
+              </fieldset>
+
               <div className={styles.field}>
                 <label htmlFor="signup-name">Full Name</label>
                 <input
@@ -149,6 +265,47 @@ export default function SignupPage() {
                   onChange={(event) => setEmail(event.target.value)}
                 />
               </div>
+
+              <div className={styles.field}>
+                <label htmlFor="signup-phone">Phone Number</label>
+                <input
+                  ref={phoneRef}
+                  id="signup-phone"
+                  type="tel"
+                  autoComplete="tel"
+                  aria-invalid={invalidField === "phone"}
+                  placeholder="Type your phone number"
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                />
+              </div>
+
+              {applicationType === "volunteer" ? (
+                <div className={styles.field}>
+                  <label htmlFor="signup-skills">Skills</label>
+                  <input
+                    id="signup-skills"
+                    type="text"
+                    placeholder="e.g. First aid, driving"
+                    value={skills}
+                    onChange={(event) => setSkills(event.target.value)}
+                  />
+                </div>
+              ) : (
+                <div className={styles.field}>
+                  <label htmlFor="signup-donor-type">Donor Type</label>
+                  <select
+                    id="signup-donor-type"
+                    value={donorType}
+                    onChange={(event) =>
+                      setDonorType(event.target.value as DonorType)
+                    }
+                  >
+                    <option value="Individual">Individual</option>
+                    <option value="Corporate">Corporate</option>
+                  </select>
+                </div>
+              )}
 
               <div className={styles.row}>
                 <div className={`${styles.field} ${styles.passwordField}`}>
@@ -253,13 +410,23 @@ export default function SignupPage() {
 
               <div
                 className={`${styles.error} ${isSuccess ? styles.success : ""}`}
-                role="alert"
+                role={isSuccess ? "status" : "alert"}
                 aria-live="polite"
               >
-                {error}
+                {isSuccess
+                  ? `Your ${applicationType} application is Pending and requires administrator approval.`
+                  : error}
               </div>
-              <button className={styles.button} type="submit">
-                Create Account
+              <button
+                className={styles.button}
+                type="submit"
+                disabled={isSubmitting || isSuccess}
+              >
+                {isSubmitting
+                  ? "Submitting..."
+                  : isSuccess
+                    ? "Application Submitted"
+                    : "Submit Application"}
               </button>
             </form>
           </div>

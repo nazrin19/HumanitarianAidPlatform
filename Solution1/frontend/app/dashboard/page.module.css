@@ -550,6 +550,10 @@
   background: #d93025;
 }
 
+.keyCritical {
+  background: #a31d1d;
+}
+
 .keyMedium {
   background: #f29900;
 }
@@ -668,6 +672,17 @@
 }
 
 .completed {
+  background: #e9ecef;
+  color: #495057;
+}
+
+.deferred,
+.rejected {
+  background: #fde3e1;
+  color: #b3261e;
+}
+
+.unassessed {
   background: #e9ecef;
   color: #495057;
 }
