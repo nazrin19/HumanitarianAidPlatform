@@ -1,18 +1,16 @@
-using System;
-using System.Text;
-using System.Text.Json.Serialization;
-
-using HumanitarianAidPlatform.Api.Swagger;
 using HumanitarianAidPlatform.Api.Middleware;
+using HumanitarianAidPlatform.Api.Swagger;
 using HumanitarianAidPlatform.Application.Ai;
 using HumanitarianAidPlatform.Application.Auth;
 using HumanitarianAidPlatform.Application.Donors;
+using HumanitarianAidPlatform.Application.Notifications;
 using HumanitarianAidPlatform.Application.Requests;
 using HumanitarianAidPlatform.Application.Resources;
 using HumanitarianAidPlatform.Application.Shelters;
 using HumanitarianAidPlatform.Application.Volunteers;
-
 using HumanitarianAidPlatform.Infrastructure.Ai;
+using HumanitarianAidPlatform.Infrastructure.External;
+using HumanitarianAidPlatform.Infrastructure.Notifications;
 using HumanitarianAidPlatform.Infrastructure.Persistence;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Donors;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Requests;
@@ -24,6 +22,9 @@ using HumanitarianAidPlatform.Infrastructure.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using System;
+using System.Text;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -118,7 +119,6 @@ else
 // Authentication services
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
-
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
 
@@ -134,7 +134,6 @@ builder.Services.AddScoped<ResourceService>();
 builder.Services.AddScoped<
     IResourceAllocationRepository,
     ResourceAllocationRepository>();
-
 builder.Services.AddScoped<ResourceAllocationService>();
 
 // Donors & Volunteers
@@ -143,9 +142,15 @@ builder.Services.AddScoped<IDonorService, DonorService>();
 builder.Services.AddScoped<IVolunteerRepository, VolunteerRepository>();
 builder.Services.AddScoped<IVolunteerService, VolunteerService>();
 
+// Notification services
+builder.Services.AddScoped<EmailSender>();
+builder.Services.AddScoped<SmsSender>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+
 var app = builder.Build();
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
+
 app.UseCors(ReactDevelopmentCors);
 
 // API documentation
