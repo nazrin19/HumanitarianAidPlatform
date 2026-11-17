@@ -1,6 +1,7 @@
 using HumanitarianAidPlatform.Api.Middleware;
 using HumanitarianAidPlatform.Api.Swagger;
 using HumanitarianAidPlatform.Application.Ai;
+using HumanitarianAidPlatform.Application.Admin;
 using HumanitarianAidPlatform.Application.Auth;
 using HumanitarianAidPlatform.Application.Donors;
 using HumanitarianAidPlatform.Application.Notifications;
@@ -34,7 +35,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy(ReactDevelopmentCors, policy =>
     {
-        policy.WithOrigins("http://localhost:5173")
+        policy.WithOrigins("http://localhost:3000", "http://localhost:5173")
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
@@ -119,6 +120,7 @@ else
 // Authentication services
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
 
@@ -152,6 +154,18 @@ var app = builder.Build();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
 app.UseCors(ReactDevelopmentCors);
+
+if (app.Configuration.GetValue<bool>("AdminBootstrap:Enabled"))
+{
+    using var scope = app.Services.CreateScope();
+    var adminUsers = scope.ServiceProvider.GetRequiredService<IAdminUserService>();
+    var created = await adminUsers.BootstrapFirstAdminAsync(
+        app.Configuration["AdminBootstrap:Email"],
+        app.Configuration["AdminBootstrap:Password"],
+        CancellationToken.None);
+    if (created)
+        app.Logger.LogWarning("A first administrator account was bootstrapped. Remove the bootstrap secret after use.");
+}
 
 // API documentation
 if (app.Environment.IsDevelopment())

@@ -19,21 +19,61 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<AuthResponseDto>> Register(RegisterRequestDto dto)
+    public async Task<ActionResult<AuthResponseDto>> Register(
+        RegisterRequestDto dto,
+        CancellationToken cancellationToken)
     {
-        var result = await _auth.RegisterAsync(dto);
+        var result = await _auth.RegisterAsync(dto, cancellationToken);
         return result.Succeeded
             ? Ok(result.Response)
             : Problem(detail: result.Error, statusCode: StatusCodes.Status409Conflict);
+    }
+
+    [HttpPost("register/volunteer")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(RegistrationPendingResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<RegistrationPendingResponse>> RegisterVolunteer(
+        RegisterVolunteerRequest dto,
+        CancellationToken cancellationToken)
+    {
+        var result = await _auth.RegisterVolunteerAsync(dto, cancellationToken);
+        if (!result.Succeeded)
+            return Problem(detail: result.Error, statusCode: StatusCodes.Status409Conflict);
+
+        return Accepted(new RegistrationPendingResponse(
+            result.UserId!.Value,
+            "Pending",
+            "Your volunteer application was submitted and is awaiting administrator approval."));
+    }
+
+    [HttpPost("register/donor")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(RegistrationPendingResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<RegistrationPendingResponse>> RegisterDonor(
+        RegisterDonorRequest dto,
+        CancellationToken cancellationToken)
+    {
+        var result = await _auth.RegisterDonorAsync(dto, cancellationToken);
+        if (!result.Succeeded)
+            return Problem(detail: result.Error, statusCode: StatusCodes.Status409Conflict);
+
+        return Accepted(new RegistrationPendingResponse(
+            result.UserId!.Value,
+            "Pending",
+            "Your donor application was submitted and is awaiting administrator approval."));
     }
 
     [HttpPost("login")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<AuthResponseDto>> Login(LoginRequestDto dto)
+    public async Task<ActionResult<AuthResponseDto>> Login(
+        LoginRequestDto dto,
+        CancellationToken cancellationToken)
     {
-        var result = await _auth.LoginAsync(dto);
+        var result = await _auth.LoginAsync(dto, cancellationToken);
         return result.Succeeded
             ? Ok(result.Response)
             : Problem(detail: result.Error, statusCode: StatusCodes.Status401Unauthorized);
