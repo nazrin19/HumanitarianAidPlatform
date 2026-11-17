@@ -16,7 +16,7 @@ public interface IVolunteerTaskService
     Task<List<VolunteerTaskResponseDto>> GetAllAsync(string? status, Guid? volunteerId);
     Task<VolunteerTaskResponseDto?> GetByIdAsync(Guid id);
 
-    /// <exception cref="ArgumentException">Volunteer not found or inactive.</exception>
+    /// <exception cref="ArgumentException">Volunteer not found or not Available.</exception>
     /// <exception cref="InvalidOperationException">Task is already completed.</exception>
     Task<VolunteerTaskResponseDto?> AssignAsync(Guid taskId, Guid volunteerId);
 

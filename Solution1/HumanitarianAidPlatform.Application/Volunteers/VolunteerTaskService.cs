@@ -56,8 +56,9 @@ public class VolunteerTaskService : IVolunteerTaskService
 
         var volunteer = await _volunteers.GetByIdAsync(volunteerId)
             ?? throw new ArgumentException("Volunteer not found.");
-        if (volunteer.Availability == "Inactive")
-            throw new ArgumentException("Volunteer is inactive.");
+        if (volunteer.Availability != "Available")
+            throw new ArgumentException(
+                $"Volunteer is {volunteer.Availability.ToLowerInvariant()} and cannot receive new tasks.");
 
         task.VolunteerId = volunteer.Id;
         task.Volunteer = volunteer;

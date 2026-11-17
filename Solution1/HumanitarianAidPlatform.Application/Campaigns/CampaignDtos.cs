@@ -28,7 +28,7 @@ public class CreateCampaignDto : IValidatableObject
 
 public class UpdateCampaignDto : CreateCampaignDto
 {
-    public bool IsActive { get; set; } = true;
+    public bool? IsActive { get; set; } 
 }
 
 public record CampaignResponseDto(

@@ -50,7 +50,10 @@ public class CampaignService : ICampaignService
         campaign.TargetAmount = dto.TargetAmount;
         campaign.StartDate = dto.StartDate;
         campaign.EndDate = dto.EndDate;
-        campaign.IsActive = dto.IsActive;
+
+        // Only change the status when the caller sent it; otherwise keep the current one.
+        if (dto.IsActive.HasValue)
+            campaign.IsActive = dto.IsActive.Value;
 
         await _repository.UpdateAsync(campaign);
         return ToDto(campaign);
