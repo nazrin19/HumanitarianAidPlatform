@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useRef, useState } from "react";
+import { setSessionCredentials } from "../lib/auth-session";
 import styles from "./page.module.css";
 
 type LoginField = "email" | "password";
@@ -22,10 +23,12 @@ const ROLE_DESTINATIONS: Record<string, string> = {
   CaseManager: "/dashboard",
   ResourceManager: "/dashboard",
   ShelterAdmin: "/dashboard",
-  VolunteerCoordinator: "/dashboard",
-  DonorOfficer: "/dashboard",
-  PartnerOfficer: "/dashboard",
-  Admin: "/dashboard",
+  Volunteer: "/portal",
+  Donor: "/portal",
+  VolunteerCoordinator: "/portal",
+  DonorOfficer: "/portal",
+  PartnerOfficer: "/portal",
+  Admin: "/admin",
 };
 
 export default function LoginPage() {
@@ -109,7 +112,7 @@ export default function LoginPage() {
         throw new Error("Your account role is not recognized.");
       }
 
-      window.sessionStorage.setItem("authToken", result.token);
+      setSessionCredentials(result.token, result.role);
       window.location.assign(destination);
     } catch (submitError) {
       setError(

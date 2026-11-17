@@ -736,45 +736,19 @@
   opacity: 0.8;
 }
 
-.newsletter {
-  display: flex;
-  max-width: 340px;
-  padding: 4px;
+.newsletterLink {
+  display: inline-flex;
+  margin-top: 14px;
+  padding: 10px 20px;
   border-radius: 999px;
   background: #fff;
-}
-
-.newsletterInput {
-  min-width: 0;
-  flex: 1;
-  padding: 0 16px;
-  border: 0;
-  background: none;
-  color: var(--ink);
-  font: inherit;
-  font-size: 14px;
-}
-
-.newsletter button {
-  padding: 10px 20px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--green);
-  color: #fff;
-  cursor: pointer;
-  font-family: inherit;
+  color: var(--green);
   font-size: 14px;
   font-weight: 600;
 }
 
-.message {
-  min-height: 20px;
-  margin-top: 8px;
-  font-size: 13px;
-}
-
-.success {
-  color: #c5f2d5;
+.newsletterLink:hover {
+  text-decoration: underline;
 }
 
 .copyright {

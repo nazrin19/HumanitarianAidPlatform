@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useRef, useState } from "react";
+import { useState } from "react";
 import styles from "./page.module.css";
 
 type NeedType = "sh" | "su";
@@ -12,29 +12,8 @@ export default function Home() {
     sh: true,
     su: true,
   });
-  const [email, setEmail] = useState("");
-  const [newsletterMessage, setNewsletterMessage] = useState("");
-  const [isNewsletterSuccess, setIsNewsletterSuccess] = useState(false);
-  const emailRef = useRef<HTMLInputElement>(null);
-
   function toggleNeed(type: NeedType) {
     setVisibleNeeds((visible) => ({ ...visible, [type]: !visible[type] }));
-  }
-
-  function handleNewsletterSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setNewsletterMessage("");
-    setIsNewsletterSuccess(false);
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setNewsletterMessage("Enter a valid email address.");
-      emailRef.current?.focus();
-      return;
-    }
-
-    setIsNewsletterSuccess(true);
-    setNewsletterMessage("Thanks for signing up!");
-    setEmail("");
   }
 
   return (
@@ -573,36 +552,8 @@ export default function Home() {
             </div>
             <div>
               <h5>Newsletter</h5>
-              <form
-                className={styles.newsletter}
-                noValidate
-                onSubmit={handleNewsletterSubmit}
-              >
-                <input
-                  ref={emailRef}
-                  id="newsletter-email"
-                  className={styles.newsletterInput}
-                  type="email"
-                  autoComplete="email"
-                  placeholder="Email address"
-                  aria-label="Email address"
-                  aria-invalid={
-                    Boolean(newsletterMessage) && !isNewsletterSuccess
-                  }
-                  aria-describedby="newsletter-message"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
-                <button type="submit">Sign up</button>
-              </form>
-              <div
-                className={`${styles.message} ${isNewsletterSuccess ? styles.success : ""}`}
-                id="newsletter-message"
-                role="status"
-                aria-live="polite"
-              >
-                {newsletterMessage}
-              </div>
+              <p>Newsletter subscriptions are not available yet. Create a platform account to get started.</p>
+              <Link className={styles.newsletterLink} href="/signup">Create an account</Link>
             </div>
           </div>
           <div className={styles.copyright}>

@@ -146,8 +146,13 @@ export default function RequestAidPage() {
     }
 
     const token = window.sessionStorage.getItem("authToken");
-    if (!token) {
+    const role = window.sessionStorage.getItem("authRole");
+    if (!token || !role) {
       setSubmitError("Please log in before submitting a request.");
+      return;
+    }
+    if (role !== "Citizen") {
+      setSubmitError("Only Citizen accounts can submit assistance requests.");
       return;
     }
 
@@ -183,6 +188,10 @@ export default function RequestAidPage() {
       }
 
       if (!response.ok) {
+        if (response.status === 401) {
+          window.sessionStorage.removeItem("authToken");
+          window.sessionStorage.removeItem("authRole");
+        }
         let responseMessage: string | undefined;
         if (responseBody && typeof responseBody === "object") {
           const body = responseBody as {
