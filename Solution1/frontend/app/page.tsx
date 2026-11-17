@@ -65,7 +65,7 @@ export default function Home() {
           </nav>
 
           <div className={styles.right}>
-            <Link className={`${styles.button} ${styles.solid} ${styles.small}`} href="#involved">
+            <Link className={`${styles.button} ${styles.solid} ${styles.small}`} href="/request-aid">
               Join Us
             </Link>
             <Link className={styles.login} href="/login">
@@ -85,7 +85,7 @@ export default function Home() {
               is needed most.
             </p>
             <div className={styles.row}>
-              <Link className={`${styles.button} ${styles.solid}`} href="/signup">
+              <Link className={`${styles.button} ${styles.solid}`} href="/request-aid">
                 Get Started
               </Link>
               <Link className={`${styles.button} ${styles.outline}`} href="#about">
@@ -105,7 +105,7 @@ export default function Home() {
             <div className={styles.how}>
               <h3>How it Works</h3>
               <div className={styles.mini}>
-                <Link href="#requests">
+                <Link href="/request-aid">
                   <Image
                     src="/homepage/home-request-help.jpg"
                     alt=""

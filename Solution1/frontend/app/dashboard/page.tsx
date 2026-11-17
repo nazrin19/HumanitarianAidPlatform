@@ -6,27 +6,52 @@ import {
   CSSProperties,
   MouseEvent as ReactMouseEvent,
   PointerEvent,
+  useEffect,
   useRef,
   useState,
 } from "react";
+import { useRouter } from "next/navigation";
 import styles from "./page.module.css";
 
-type Urgency = "High" | "Medium" | "Low";
-type RequestStatus = "Pending" | "Approved" | "Allocated" | "Completed";
+type Urgency = "Critical" | "High" | "Medium" | "Low";
+type RequestStatus =
+  | "Submitted"
+  | "PendingReview"
+  | "Approved"
+  | "Deferred"
+  | "Assigned"
+  | "Fulfilled"
+  | "Rejected";
 type Layer = "req" | "sh" | "res";
 type Selection = { type: Layer; index: number } | null;
 type ViewBox = { x: number; y: number; w: number; h: number };
 
 type AidRequest = {
-  id: number;
+  id: string;
   cat: string;
-  name: string;
-  lvl: Urgency;
-  sc: number;
+  description: string;
+  address: string | null;
+  createdAt: string;
+  latitude: number | null;
+  longitude: number | null;
+  lvl: Urgency | null;
+  sc: number | null;
   st: RequestStatus;
-  x: number;
-  y: number;
-  area: string;
+  x?: number;
+  y?: number;
+};
+
+type ApiAidRequest = {
+  id: string;
+  category: string;
+  description: string;
+  address: string | null;
+  createdAt: string;
+  latitude: number | null;
+  longitude: number | null;
+  urgencyLevel: Urgency | null;
+  urgencyScore: number | null;
+  status: RequestStatus;
 };
 
 type Shelter = {
@@ -46,16 +71,6 @@ type Depot = {
   y: number;
 };
 
-const initialRequests: AidRequest[] = [
-  { id: 1042, cat: "Temporary shelter", name: "S. Fernando", lvl: "High", sc: 92, st: "Pending", x: 402, y: 222, area: "Old Town" },
-  { id: 1041, cat: "Medicine", name: "K. Rajan", lvl: "High", sc: 84, st: "Approved", x: 292, y: 318, area: "Riverside" },
-  { id: 1040, cat: "Food", name: "N. Perera", lvl: "Medium", sc: 67, st: "Pending", x: 612, y: 222, area: "Temple Hill" },
-  { id: 1039, cat: "Water", name: "M. Rahman", lvl: "High", sc: 88, st: "Allocated", x: 722, y: 148, area: "Temple Hill" },
-  { id: 1038, cat: "Transport", name: "D. Silva", lvl: "Low", sc: 71, st: "Pending", x: 520, y: 318, area: "Old Town" },
-  { id: 1035, cat: "Accessibility help", name: "P. Jayasinghe", lvl: "Medium", sc: 74, st: "Approved", x: 212, y: 196, area: "Lakeside" },
-  { id: 1031, cat: "Food", name: "L. Wickrama", lvl: "Low", sc: 69, st: "Completed", x: 742, y: 372, area: "Harbour" },
-];
-
 const shelters: Shelter[] = [
   { n: "City Center Shelter", p: 85, u: 255, c: 300, x: 446, y: 262 },
   { n: "Riverside Hall", p: 54, u: 162, c: 300, x: 262, y: 352 },
@@ -72,16 +87,20 @@ const depots: Depot[] = [
 ];
 
 const urgencyColors: Record<Urgency, string> = {
+  Critical: "#A31D1D",
   High: "#D93025",
   Medium: "#F29900",
   Low: "#1FA463",
 };
 
 const statusClass: Record<RequestStatus, string> = {
-  Pending: "pending",
+  Submitted: "pending",
+  PendingReview: "pending",
   Approved: "approved",
-  Allocated: "allocated",
-  Completed: "completed",
+  Deferred: "deferred",
+  Assigned: "allocated",
+  Fulfilled: "completed",
+  Rejected: "rejected",
 };
 
 const stockClass: Record<Depot["s"], string> = {
@@ -92,26 +111,94 @@ const stockClass: Record<Depot["s"], string> = {
 
 const initialViewBox: ViewBox = { x: 0, y: 0, w: 900, h: 520 };
 
-function isDone(request: AidRequest) {
-  return request.st === "Allocated" || request.st === "Completed";
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001"
+).replace(/\/+$/, "");
+
+const requestStatuses: RequestStatus[] = [
+  "Submitted",
+  "PendingReview",
+  "Approved",
+  "Deferred",
+  "Assigned",
+  "Fulfilled",
+  "Rejected",
+];
+
+const urgencyLevels: Urgency[] = ["Critical", "High", "Medium", "Low"];
+
+function isApiAidRequest(value: unknown): value is ApiAidRequest {
+  if (!value || typeof value !== "object") return false;
+  const request = value as Record<string, unknown>;
+  return (
+    typeof request.id === "string" &&
+    typeof request.category === "string" &&
+    typeof request.description === "string" &&
+    typeof request.status === "string" &&
+    requestStatuses.includes(request.status as RequestStatus) &&
+    (request.urgencyLevel === null ||
+      typeof request.urgencyLevel === "string" &&
+        urgencyLevels.includes(request.urgencyLevel as Urgency)) &&
+    (request.urgencyScore === null ||
+      typeof request.urgencyScore === "number") &&
+    (request.latitude === null || typeof request.latitude === "number") &&
+    (request.longitude === null || typeof request.longitude === "number") &&
+    (request.address === null || typeof request.address === "string") &&
+    typeof request.createdAt === "string"
+  );
 }
 
-function getSource(request: AidRequest) {
-  const matchingItem: Record<string, string> = {
-    Medicine: "Medical Kits",
-    Water: "Water",
-    Food: "Food",
+function mapApiRequest(request: ApiAidRequest): AidRequest {
+  return {
+    id: request.id,
+    cat: request.category,
+    description: request.description,
+    address: request.address,
+    createdAt: request.createdAt,
+    latitude: request.latitude,
+    longitude: request.longitude,
+    lvl: request.urgencyLevel,
+    sc: request.urgencyScore,
+    st: request.status,
   };
-  if (matchingItem[request.cat]) {
-    return depots.find((depot) => depot.item === matchingItem[request.cat]);
-  }
-  return shelters
-    .filter((shelter) => shelter.p < 80)
-    .sort(
-      (a, b) =>
-        Math.hypot(a.x - request.x, a.y - request.y) -
-        Math.hypot(b.x - request.x, b.y - request.y),
-    )[0];
+}
+
+function positionRequests(requests: AidRequest[]): AidRequest[] {
+  const located = requests.filter(
+    (
+      request,
+    ): request is AidRequest & { latitude: number; longitude: number } =>
+      request.latitude !== null && request.longitude !== null,
+  );
+  if (located.length === 0) return requests;
+
+  const latitudes = located.map((request) => request.latitude);
+  const longitudes = located.map((request) => request.longitude);
+  const minLatitude = Math.min(...latitudes);
+  const maxLatitude = Math.max(...latitudes);
+  const minLongitude = Math.min(...longitudes);
+  const maxLongitude = Math.max(...longitudes);
+
+  return requests.map((request) => {
+    if (request.latitude === null || request.longitude === null) return request;
+    return {
+      ...request,
+      x:
+        maxLongitude === minLongitude
+          ? 450
+          : 100 +
+            ((request.longitude - minLongitude) /
+              (maxLongitude - minLongitude)) *
+              700,
+      y:
+        maxLatitude === minLatitude
+          ? 260
+          : 80 +
+            ((maxLatitude - request.latitude) /
+              (maxLatitude - minLatitude)) *
+              360,
+    };
+  });
 }
 
 function clampViewBox(viewBox: ViewBox): ViewBox {
@@ -126,7 +213,11 @@ function clampViewBox(viewBox: ViewBox): ViewBox {
 }
 
 export default function DashboardPage() {
-  const [requests, setRequests] = useState(initialRequests);
+  const router = useRouter();
+  const [requests, setRequests] = useState<AidRequest[]>([]);
+  const [isLoadingRequests, setIsLoadingRequests] = useState(true);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [requestLoadError, setRequestLoadError] = useState("");
   const [layers, setLayers] = useState<Record<Layer, boolean>>({
     req: true,
     sh: true,
@@ -135,7 +226,6 @@ export default function DashboardPage() {
   const [urgency, setUrgency] = useState("all");
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState<Selection>(null);
-  const [routes, setRoutes] = useState<{ id: number; source: Shelter | Depot }[]>([]);
   const [viewBox, setViewBox] = useState(initialViewBox);
   const [toast, setToast] = useState("");
   const [showToast, setShowToast] = useState(false);
@@ -146,6 +236,98 @@ export default function DashboardPage() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const normalizedQuery = query.trim().toLowerCase();
 
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    const token = window.sessionStorage.getItem("authToken");
+
+    if (!token) {
+      router.replace("/login");
+      return () => {
+        active = false;
+        controller.abort();
+      };
+    }
+
+    async function loadRequests() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/requests/mine`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+
+        if (response.status === 401) {
+          window.sessionStorage.removeItem("authToken");
+          setIsRedirecting(true);
+          router.replace("/login");
+          return;
+        }
+
+        const responseText = await response.text();
+        let responseBody: unknown;
+        if (responseText) {
+          try {
+            responseBody = JSON.parse(responseText);
+          } catch {
+            if (response.ok) {
+              throw new Error("The server returned an invalid requests response.");
+            }
+          }
+        }
+
+        if (!response.ok) {
+          let message: string | undefined;
+          if (responseBody && typeof responseBody === "object") {
+            const body = responseBody as {
+              detail?: unknown;
+              message?: unknown;
+              title?: unknown;
+            };
+            const errorMessage = body.detail ?? body.message ?? body.title;
+            if (typeof errorMessage === "string") message = errorMessage;
+          }
+          throw new Error(
+            message ||
+              `Unable to load requests (${response.status} ${response.statusText}).`,
+          );
+        }
+
+        if (!responseBody || typeof responseBody !== "object") {
+          throw new Error("The server returned an invalid requests response.");
+        }
+        const items = (responseBody as { items?: unknown }).items;
+        if (!Array.isArray(items) || !items.every(isApiAidRequest)) {
+          throw new Error("The server returned requests in an unexpected format.");
+        }
+
+        if (active) {
+          setRequests(positionRequests(items.map(mapApiRequest)));
+          setRequestLoadError("");
+        }
+      } catch (error) {
+        if (
+          active &&
+          !(error instanceof DOMException && error.name === "AbortError")
+        ) {
+          setRequestLoadError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load requests. Please try again.",
+          );
+        }
+      } finally {
+        if (active) setIsLoadingRequests(false);
+      }
+    }
+
+    void loadRequests();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [router]);
+
   function matches(value: string) {
     return value.toLowerCase().includes(normalizedQuery);
   }
@@ -154,9 +336,12 @@ export default function DashboardPage() {
     .map((request, index) => ({ request, index }))
     .filter(
       ({ request }) =>
-        (urgency === "all" || urgency === request.lvl) &&
+        (urgency === "all" ||
+          (urgency === "unassessed"
+            ? request.lvl === null
+            : urgency === request.lvl)) &&
         matches(
-          `${request.id} ${request.cat} ${request.name} ${request.area} ${request.lvl} ${request.st}`,
+          `${request.id} ${request.cat} ${request.description} ${request.address ?? ""} ${request.lvl ?? ""} ${request.st}`,
         ),
     );
 
@@ -170,6 +355,23 @@ export default function DashboardPage() {
     selection?.type === "sh" ? shelters[selection.index] : undefined;
   const selectedDepot =
     selection?.type === "res" ? depots[selection.index] : undefined;
+  const urgentRequestCount = requests.filter(
+    (request) => request.lvl === "Critical" || request.lvl === "High",
+  ).length;
+  const activeRequestCount = requests.filter(
+    (request) => request.st !== "Fulfilled" && request.st !== "Rejected",
+  ).length;
+  const urgencyCounts = urgencyLevels.map((level) => ({
+    level,
+    count: requests.filter((request) => request.lvl === level).length,
+  }));
+  const mediumRequestCount =
+    urgencyCounts.find(({ level }) => level === "Medium")?.count ?? 0;
+  const lowRequestCount =
+    urgencyCounts.find(({ level }) => level === "Low")?.count ?? 0;
+  const unassessedRequestCount = requests.filter(
+    (request) => request.lvl === null,
+  ).length;
 
   function notify(message: string) {
     setToast(message);
@@ -237,6 +439,7 @@ export default function DashboardPage() {
           : type === "sh"
             ? shelters[index]
             : depots[index];
+      if (item.x === undefined || item.y === undefined) return;
       const w = Math.min(viewBox.w, 560);
       setViewBox(
         clampViewBox({
@@ -248,24 +451,6 @@ export default function DashboardPage() {
       );
       mapCardRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
-  }
-
-  function allocate(index: number) {
-    const request = requests[index];
-    if (isDone(request)) return;
-    const source = getSource(request);
-    if (!source) {
-      notify(`No suitable source is available for request #REQ-${request.id}.`);
-      return;
-    }
-    setRoutes((current) => [...current, { id: request.id, source }]);
-    setRequests((current) =>
-      current.map((item, itemIndex) =>
-        itemIndex === index ? { ...item, st: "Allocated" } : item,
-      ),
-    );
-    selectItem("req", index, true);
-    notify(`Allocation triggered: ${source.n} → #REQ-${request.id}`);
   }
 
   function showAllRequests() {
@@ -287,6 +472,16 @@ export default function DashboardPage() {
   ]
     .filter(Boolean)
     .join(" · ");
+
+  if (isLoadingRequests || isRedirecting) {
+    return (
+      <main className={styles.page}>
+        <p className={styles.wrap} role="status">
+          {isRedirecting ? "Redirecting to login…" : "Loading your requests…"}
+        </p>
+      </main>
+    );
+  }
 
   return (
     <div className={styles.page}>
@@ -340,10 +535,21 @@ export default function DashboardPage() {
       <main className={styles.wrap} id="top">
         <section className={styles.kpis} aria-label="Key figures">
           <article className={styles.card}>
-            <div className={styles.kpiHeading}><span className={styles.kpiIcon}><DocumentIcon /></span>Assistance Requests<span className={`${styles.tag} ${styles.redTag}`}>34 urgent</span></div>
-            <div className={styles.big}>128</div><div className={styles.small}>Total active requests</div>
-            <div className={styles.segment}><i /><i /><i /></div>
-            <div className={styles.legend}><span className={styles.highDot}>High 34</span><span className={styles.mediumDot}>Medium 61</span><span className={styles.lowDot}>Low 33</span></div>
+            <div className={styles.kpiHeading}><span className={styles.kpiIcon}><DocumentIcon /></span>My Requests<span className={`${styles.tag} ${styles.redTag}`}>{urgentRequestCount} urgent</span></div>
+            <div className={styles.big}>{activeRequestCount}</div><div className={styles.small}>Active requests</div>
+            <div className={styles.segment}>
+              <i style={{ flex: urgentRequestCount }} />
+              <i style={{ flex: mediumRequestCount }} />
+              <i style={{ flex: lowRequestCount }} />
+            </div>
+            <div className={styles.legend}>
+              {urgencyCounts.filter(({ count }) => count > 0).map(({ level, count }) => (
+                <span className={level === "Critical" || level === "High" ? styles.highDot : level === "Medium" ? styles.mediumDot : styles.lowDot} key={level}>
+                  {level} {count}
+                </span>
+              ))}
+              {unassessedRequestCount > 0 && <span>{`Not assessed ${unassessedRequestCount}`}</span>}
+            </div>
           </article>
           <article className={styles.card}>
             <div className={styles.kpiHeading}><span className={styles.kpiIcon}><ShelterIcon /></span>Shelters</div>
@@ -371,9 +577,15 @@ export default function DashboardPage() {
               ))}
             </div>
             <select className={styles.select} aria-label="Filter requests by urgency" value={urgency} onChange={(event) => setUrgency(event.target.value)}>
-              <option value="all">All urgency levels</option><option>High</option><option>Medium</option><option>Low</option>
+              <option value="all">All urgency levels</option><option>Critical</option><option>High</option><option>Medium</option><option>Low</option><option value="unassessed">Not assessed</option>
             </select>
-            <span className={styles.count} aria-live="polite">{countText}</span>
+            <span className={styles.count} aria-live="polite">
+              {isLoadingRequests
+                ? "Loading your requests…"
+                : requestLoadError
+                  ? "Requests unavailable"
+                  : countText}
+            </span>
           </div>
           <div className={styles.mapBox}>
             <svg
@@ -396,13 +608,6 @@ export default function DashboardPage() {
               <g fill="none" stroke="#fff" strokeWidth="9" strokeLinecap="round"><path d="M0 230C160 250 300 190 450 250S740 210 900 250" /><path d="M450 -10C430 120 470 190 450 250S430 420 470 540" /><path d="M180 -10C200 100 160 200 220 300" /><path d="M700 -10C720 100 650 180 690 300S760 440 740 540" /><path d="M0 120C120 140 240 100 330 130" /></g>
               <g fill="none" stroke="#fff" strokeWidth="3" opacity=".9"><path d="M380 200h140M380 250h140M380 300h140M400 180v140M450 180v140M500 180v140M560 90l120 60M590 60l120 60" /></g>
               <g fontFamily="Inter,sans-serif" fontSize="12" fontWeight="700" letterSpacing="2" fill="#6B8F7B" opacity=".85"><text x="395" y="172">OLD TOWN</text><text x="205" y="372">RIVERSIDE</text><text x="590" y="88">TEMPLE HILL</text><text x="740" y="440">HARBOUR</text><text x="70" y="64">LAKESIDE</text></g>
-              <g fill="none" stroke="#1B6B47" strokeWidth="4" strokeLinecap="round">
-                {routes.map(({ id, source }) => {
-                  const request = requests.find((item) => item.id === id);
-                  if (!request) return null;
-                  return <path className={styles.route} key={id} d={`M${source.x} ${source.y}Q${(source.x + request.x) / 2} ${Math.min(source.y, request.y) - 60} ${request.x} ${request.y - 14}`} />;
-                })}
-              </g>
               {layers.res && <g>{matchingDepots.map((depot) => {
                 const index = depots.indexOf(depot);
                 const color = depot.s === "Normal" ? "#1FA463" : depot.s === "Low stock" ? "#F29900" : "#D93025";
@@ -427,13 +632,14 @@ export default function DashboardPage() {
                 </g>;
               })}</g>}
               {layers.req && <g>{visibleRequests.map(({ request, index }) => {
-                const color = urgencyColors[request.lvl];
+                if (request.x === undefined || request.y === undefined) return null;
+                const color = request.lvl ? urgencyColors[request.lvl] : "#718096";
                 const selected = selection?.type === "req" && selection.index === index;
-                return <g className="mapMarker" key={request.id} transform={`translate(${request.x} ${request.y})`} role="button" tabIndex={0} aria-label={`Request #REQ-${request.id}, ${request.cat}, ${request.lvl} urgency`} onClick={() => selectItem("req", index)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectItem("req", index); } }}>
+                return <g className="mapMarker" key={request.id} transform={`translate(${request.x} ${request.y})`} role="button" tabIndex={0} aria-label={`Request ${request.id}, ${request.cat}, ${request.lvl ?? "urgency not assessed"}`} onClick={() => selectItem("req", index)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectItem("req", index); } }}>
                   {selected && <circle className={styles.pulse} r="14" fill={color} opacity=".5" />}
                   <ellipse cy="1" rx="8" ry="3" fill="#000" opacity=".18" />
                   <path d="M0 0C-5-10-16-18-16-30a16 16 0 0 1 32 0C16-18 5-10 0 0z" fill={color} stroke="#fff" strokeWidth={selected ? 4 : 2.5} />
-                  <circle cy="-30" r="6" fill="#fff" /><title>{`Request #REQ-${request.id}`}</title>
+                  <circle cy="-30" r="6" fill="#fff" /><title>{`Request ${request.id}`}</title>
                 </g>;
               })}</g>}
             </svg>
@@ -442,33 +648,124 @@ export default function DashboardPage() {
               <button type="button" aria-label="Zoom out" onClick={() => zoom(1.4)}>−</button>
               <button type="button" aria-label="Reset map view" onClick={() => setViewBox(initialViewBox)}>↻</button>
             </div>
-            <div className={styles.mapKey}><span><i className={styles.keyHigh} />High</span><span><i className={styles.keyMedium} />Medium</span><span><i className={styles.keyLow} />Low request</span><span><i className={styles.keyShelter} />Shelter</span><span><i className={styles.keyDepot} />Resource depot</span></div>
+            <div className={styles.mapKey}><span><i className={styles.keyCritical} />Critical</span><span><i className={styles.keyHigh} />High</span><span><i className={styles.keyMedium} />Medium</span><span><i className={styles.keyLow} />Low</span><span><i className={styles.keyShelter} />Shelter</span><span><i className={styles.keyDepot} />Resource depot</span></div>
             {selection && (
               <div className={styles.info} role="dialog" aria-label="Map item details">
                 <button className={styles.closeInfo} type="button" aria-label="Close details" onClick={() => setSelection(null)}>×</button>
-                {selectedRequest && <><h3>#REQ-{selectedRequest.id} · {selectedRequest.cat}</h3><p>{selectedRequest.area} · {selectedRequest.name}</p><dl><div><dt>AI urgency</dt><dd><span className={`${styles.pill} ${styles[urgencyClass(selectedRequest.lvl)]}`}>{selectedRequest.lvl} · {selectedRequest.sc}%</span></dd></div><div><dt>Status</dt><dd><span className={`${styles.pill} ${styles[statusClass[selectedRequest.st]]}`}>{selectedRequest.st}</span></dd></div><div><dt>Suggested source</dt><dd>{getSource(selectedRequest)?.n ?? "—"}</dd></div></dl><div className={styles.infoActions}><button className={`${styles.button} ${styles.primaryButton}`} type="button" disabled={isDone(selectedRequest)} onClick={() => allocate(selection.index)}>Trigger Allocation</button></div></>}
-                {selectedShelter && <><h3>{selectedShelter.n}</h3><p>Shelter</p><dl><div><dt>Occupancy</dt><dd><span className={`${styles.pill} ${selectedShelter.p >= 80 ? styles.high : styles.low}`}>{selectedShelter.p}% full</span></dd></div><div><dt>Beds used</dt><dd>{selectedShelter.u} of {selectedShelter.c}</dd></div><div><dt>Open requests nearby</dt><dd>{requests.filter((request) => Math.hypot(request.x - selectedShelter.x, request.y - selectedShelter.y) < 230 && request.st !== "Completed").length}</dd></div></dl><div className={`${styles.bar} ${selectedShelter.p >= 80 ? styles.redBar : ""}`}><i style={{ width: `${selectedShelter.p}%` }} /></div></>}
+                {selectedRequest && <><h3>Request {selectedRequest.id} · {selectedRequest.cat}</h3><p>{selectedRequest.address || "Address not provided"}</p><p>{selectedRequest.description}</p><dl><div><dt>Urgency</dt><dd>{selectedRequest.lvl ? `${selectedRequest.lvl}${selectedRequest.sc === null ? "" : ` · ${selectedRequest.sc}%`}` : "Not assessed"}</dd></div><div><dt>Status</dt><dd><span className={`${styles.pill} ${styles[statusClass[selectedRequest.st]]}`}>{displayStatus(selectedRequest.st)}</span></dd></div><div><dt>Submitted</dt><dd>{new Date(selectedRequest.createdAt).toLocaleDateString()}</dd></div></dl></>}
+                {selectedShelter && <><h3>{selectedShelter.n}</h3><p>Shelter</p><dl><div><dt>Occupancy</dt><dd><span className={`${styles.pill} ${selectedShelter.p >= 80 ? styles.high : styles.low}`}>{selectedShelter.p}% full</span></dd></div><div><dt>Beds used</dt><dd>{selectedShelter.u} of {selectedShelter.c}</dd></div></dl><div className={`${styles.bar} ${selectedShelter.p >= 80 ? styles.redBar : ""}`}><i style={{ width: `${selectedShelter.p}%` }} /></div></>}
                 {selectedDepot && <><h3>{selectedDepot.n}</h3><p>Resource depot</p><dl><div><dt>Item</dt><dd>{selectedDepot.item}</dd></div><div><dt>Stock level</dt><dd><span className={`${styles.pill} ${styles[stockClass[selectedDepot.s]]}`}>{selectedDepot.s}</span></dd></div></dl></>}
               </div>
             )}
           </div>
-          <p className={styles.note}>Schematic map with sample data. Drag to pan, use the buttons to zoom, and select any marker or request ID for details.</p>
+          <p className={styles.note}>Request markers show relative positions from your submitted coordinates; requests without coordinates appear in the list only. Shelter and resource markers are schematic.</p>
         </section>
 
         <div className={styles.columns}>
           <section className={styles.card} id="queue" aria-labelledby="queue-title">
-            <div className={styles.cardHeading}><h2 id="queue-title">Incoming Assistance Requests &amp; Urgency Queue</h2><button className={styles.button} type="button" onClick={showAllRequests}>View all</button></div>
-            <div className={styles.tableScroll}><table><colgroup><col className={styles.colId} /><col className={styles.colCategory} /><col className={styles.colName} /><col className={styles.colUrgency} /><col className={styles.colStatus} /><col className={styles.colActions} /></colgroup><thead><tr><th>Request ID</th><th>Category</th><th>Citizen</th><th>AI Urgency</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-              {visibleRequests.slice().sort((a, b) => ["High", "Medium", "Low"].indexOf(a.request.lvl) - ["High", "Medium", "Low"].indexOf(b.request.lvl) || b.request.sc - a.request.sc).map(({ request, index }) => (
-                <tr className={selection?.type === "req" && selection.index === index ? styles.highlightedRow : ""} key={request.id} style={{ "--level-color": urgencyColors[request.lvl] } as CSSProperties}>
-                  <td><button className={styles.requestId} type="button" aria-label={`Show request ${request.id} on map`} onClick={() => selectItem("req", index, true)}>#REQ-{request.id}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11z" /><circle cx="12" cy="10" r="2.5" /></svg></button></td>
-                  <td className={styles.category}>{request.cat}</td><td className={styles.citizen}>{request.name}</td>
-                  <td><div className={styles.urgencyCell}><span className={`${styles.pill} ${styles[urgencyClass(request.lvl)]}`}>{request.lvl} · {request.sc}%</span><span className={styles.meter}><i style={{ width: `${request.sc}%`, background: urgencyColors[request.lvl] }} /></span></div></td>
-                  <td><span className={`${styles.pill} ${styles[statusClass[request.st]]}`}>{request.st}</span></td>
-                  <td><div className={styles.rowActions}><button className={styles.button} type="button" onClick={() => selectItem("req", index, true)}>Review</button><button className={`${styles.button} ${styles.primaryButton}`} type="button" disabled={isDone(request)} onClick={() => allocate(index)}>Allocate</button></div></td>
-                </tr>
-              ))}
-            </tbody></table></div>
+            <div className={styles.cardHeading}>
+              <h2 id="queue-title">My Assistance Requests</h2>
+              <button className={styles.button} type="button" onClick={showAllRequests}>View all</button>
+            </div>
+            <div className={styles.tableScroll}>
+              <table>
+                <colgroup>
+                  <col className={styles.colId} />
+                  <col className={styles.colCategory} />
+                  <col className={styles.colName} />
+                  <col className={styles.colUrgency} />
+                  <col className={styles.colStatus} />
+                  <col className={styles.colActions} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Request ID</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th>Urgency</th>
+                    <th>Status</th>
+                    <th>Submitted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoadingRequests && (
+                    <tr><td colSpan={6} role="status">Loading your requests…</td></tr>
+                  )}
+                  {!isLoadingRequests && requestLoadError && (
+                    <tr><td colSpan={6} role="alert">{requestLoadError}</td></tr>
+                  )}
+                  {!isLoadingRequests && !requestLoadError && visibleRequests.length === 0 && (
+                    <tr><td colSpan={6}>No requests found.</td></tr>
+                  )}
+                  {!isLoadingRequests && !requestLoadError &&
+                    visibleRequests
+                      .slice()
+                      .sort(
+                        (a, b) =>
+                          Date.parse(b.request.createdAt) -
+                          Date.parse(a.request.createdAt),
+                      )
+                      .map(({ request, index }) => {
+                        const markerColor = request.lvl
+                          ? urgencyColors[request.lvl]
+                          : "#718096";
+                        return (
+                          <tr
+                            className={
+                              selection?.type === "req" &&
+                              selection.index === index
+                                ? styles.highlightedRow
+                                : ""
+                            }
+                            key={request.id}
+                            style={{ "--level-color": markerColor } as CSSProperties}
+                          >
+                            <td>
+                              <button
+                                className={styles.requestId}
+                                type="button"
+                                aria-label={`Show request ${request.id} on map`}
+                                onClick={() => selectItem("req", index, true)}
+                              >
+                                #{request.id}
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                  <path d="M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11z" />
+                                  <circle cx="12" cy="10" r="2.5" />
+                                </svg>
+                              </button>
+                            </td>
+                            <td className={styles.category}>{request.cat}</td>
+                            <td className={styles.citizen}>{request.description}</td>
+                            <td>
+                              <div className={styles.urgencyCell}>
+                                <span className={`${styles.pill} ${styles[urgencyClass(request.lvl)]}`}>
+                                  {request.lvl ?? "Not assessed"}
+                                  {request.sc === null ? "" : ` · ${request.sc}%`}
+                                </span>
+                                {request.sc !== null && (
+                                  <span className={styles.meter}>
+                                    <i
+                                      style={{
+                                        width: `${request.sc}%`,
+                                        background: markerColor,
+                                      }}
+                                    />
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              <span className={`${styles.pill} ${styles[statusClass[request.st]]}`}>
+                                {displayStatus(request.st)}
+                              </span>
+                            </td>
+                            <td>{new Date(request.createdAt).toLocaleDateString()}</td>
+                          </tr>
+                        );
+                      })}
+                </tbody>
+              </table>
+            </div>
           </section>
           <div className={styles.sideColumn}>
             <section className={styles.card} aria-labelledby="shelters-title">
@@ -493,8 +790,14 @@ export default function DashboardPage() {
   );
 }
 
-function urgencyClass(level: Urgency) {
+function urgencyClass(level: Urgency | null) {
+  if (level === null) return "unassessed";
+  if (level === "Critical") return "critical";
   return level === "High" ? "high" : level === "Medium" ? "medium" : "low";
+}
+
+function displayStatus(status: RequestStatus) {
+  return status.replace(/([a-z])([A-Z])/g, "$1 $2");
 }
 
 function DocumentIcon() {
