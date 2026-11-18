@@ -3,9 +3,18 @@
 import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useRef, useState } from "react";
+import { ApiError, apiFetch } from "@/utils/api";
 import styles from "./page.module.css";
 
 type SignupField = "name" | "email" | "password" | "confirmPassword" | "terms";
+
+type RegistrationResponse = {
+  token: string;
+  expiresAt: string;
+  email: string;
+  fullName: string;
+  role: string;
+};
 
 export default function SignupPage() {
   const [name, setName] = useState("");
@@ -17,15 +26,18 @@ export default function SignupPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [invalidField, setInvalidField] = useState<SignupField | null>(null);
+  const submittingRef = useRef(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmPasswordRef = useRef<HTMLInputElement>(null);
   const termsRef = useRef<HTMLInputElement>(null);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submittingRef.current) return;
     setError("");
     setIsSuccess(false);
     setInvalidField(null);
@@ -65,8 +77,35 @@ export default function SignupPage() {
       return;
     }
 
-    setIsSuccess(true);
-    setError("Account created. Welcome to the community!");
+    submittingRef.current = true;
+    setIsSubmitting(true);
+
+    try {
+      await apiFetch<RegistrationResponse>("/api/auth/register", {
+        method: "POST",
+        body: {
+          fullName: name.trim(),
+          email: email.trim(),
+          password,
+        },
+      });
+      setIsSuccess(true);
+      setError("Account created. Welcome to the community!");
+    } catch (submitError) {
+      setIsSuccess(false);
+      if (submitError instanceof ApiError && submitError.status === 409) {
+        setInvalidField("email");
+        emailRef.current?.focus();
+      }
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Unable to create your account. Please try again.",
+      );
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -258,8 +297,13 @@ export default function SignupPage() {
               >
                 {error}
               </div>
-              <button className={styles.button} type="submit">
-                Create Account
+              <button
+                className={styles.button}
+                type="submit"
+                disabled={isSubmitting}
+                aria-busy={isSubmitting}
+              >
+                {isSubmitting ? "Creating Account…" : "Create Account"}
               </button>
             </form>
           </div>

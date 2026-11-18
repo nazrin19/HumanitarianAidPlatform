@@ -55,7 +55,7 @@ export default function LoginPage() {
       className={`${styles.page} min-h-screen flex items-center justify-center p-4 md:p-6`}
     >
       <div
-        className={`${styles.shell} w-full max-w-[1080px] min-h-[690px] rounded-[28px] overflow-hidden grid grid-cols-2 bg-white shadow-xl`}
+        className={`${styles.shell} w-full max-w-270 min-h-172.5 rounded-[28px] overflow-hidden grid grid-cols-2 bg-white shadow-xl`}
       >
         <section className={styles.formPanel}>
           <div className={styles.brand}>
