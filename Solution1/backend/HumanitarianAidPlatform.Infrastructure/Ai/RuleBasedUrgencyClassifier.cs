@@ -10,7 +10,7 @@ namespace HumanitarianAidPlatform.Infrastructure.Ai;
 
 public class RuleBasedUrgencyClassifier : IUrgencyClassifier
 {
-    public string Name => "RuleBased-v1";
+    public string Name => "RuleBased-v2";
 
     private static readonly Dictionary<RequestCategory, int> BaseScores = new()
     {
@@ -87,6 +87,12 @@ public class RuleBasedUrgencyClassifier : IUrgencyClassifier
         {
             score += 10;
             reasons.Add($"Large household of {people} (+10)");
+        }
+
+        if (critical.Count > 0)
+        {
+            score = Math.Max(score, 80);
+            reasons.Add("Critical indicators met the critical review threshold (80)");
         }
 
         score = Math.Clamp(score, 0, 100);

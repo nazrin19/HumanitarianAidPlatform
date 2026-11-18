@@ -17,10 +17,124 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.12")
+                .HasAnnotation("ProductVersion", "10.0.15")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Donors.Campaign", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("TargetAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Campaigns");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Donors.Donation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid?>("CampaignId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("DonatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("DonorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CampaignId");
+
+                    b.HasIndex("DonorId");
+
+                    b.ToTable("Donations");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Donors.Donor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Phone")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasFilter("[UserId] IS NOT NULL");
+
+                    b.ToTable("Donors");
+                });
 
             modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Notifications.Notification", b =>
                 {
@@ -56,6 +170,52 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Notifications");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Requests.AiRecommendation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AssistanceRequestId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<double>("Confidence")
+                        .HasColumnType("float");
+
+                    b.Property<DateTime>("GeneratedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ModelName")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("Rationale")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("SuggestedCategory")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("UrgencyLevel")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<int>("UrgencyScore")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssistanceRequestId")
+                        .IsUnique();
+
+                    b.ToTable("AiRecommendations");
                 });
 
             modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Requests.AssistanceRequest", b =>
@@ -102,6 +262,51 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                     b.HasIndex("Status");
 
                     b.ToTable("AssistanceRequests");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Requests.AuditLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<double?>("AiConfidence")
+                        .HasColumnType("float");
+
+                    b.Property<string>("AiSnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("AssistanceRequestId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ChangedValuesJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("DecidedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("DecidedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssistanceRequestId");
+
+                    b.HasIndex("DecidedAt");
+
+                    b.HasIndex("DecidedByUserId");
+
+                    b.ToTable("AuditLogs");
                 });
 
             modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Requests.RequestStatusHistory", b =>
@@ -263,6 +468,16 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                         },
                         new
                         {
+                            Id = new Guid("00000000-0000-0000-0000-000000000010"),
+                            Name = "Volunteer"
+                        },
+                        new
+                        {
+                            Id = new Guid("00000000-0000-0000-0000-000000000011"),
+                            Name = "Donor"
+                        },
+                        new
+                        {
                             Id = new Guid("00000000-0000-0000-0000-000000000002"),
                             Name = "Coordinator"
                         },
@@ -309,6 +524,13 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("AccountStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("Active");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -341,6 +563,131 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                     b.HasIndex("RoleId");
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Volunteers.Volunteer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Availability")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("Phone")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Skills")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasFilter("[UserId] IS NOT NULL");
+
+                    b.ToTable("Volunteers");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Volunteers.VolunteerTask", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("DueDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Location")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("VolunteerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("VolunteerId");
+
+                    b.ToTable("VolunteerTasks");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Donors.Donation", b =>
+                {
+                    b.HasOne("HumanitarianAidPlatform.Domain.Entities.Donors.Campaign", "Campaign")
+                        .WithMany("Donations")
+                        .HasForeignKey("CampaignId");
+
+                    b.HasOne("HumanitarianAidPlatform.Domain.Entities.Donors.Donor", "Donor")
+                        .WithMany("Donations")
+                        .HasForeignKey("DonorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Campaign");
+
+                    b.Navigation("Donor");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Donors.Donor", b =>
+                {
+                    b.HasOne("HumanitarianAidPlatform.Domain.Entities.Users.User", "User")
+                        .WithOne("DonorProfile")
+                        .HasForeignKey("HumanitarianAidPlatform.Domain.Entities.Donors.Donor", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Requests.AiRecommendation", b =>
+                {
+                    b.HasOne("HumanitarianAidPlatform.Domain.Entities.Requests.AssistanceRequest", null)
+                        .WithMany()
+                        .HasForeignKey("AssistanceRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Requests.AuditLog", b =>
+                {
+                    b.HasOne("HumanitarianAidPlatform.Domain.Entities.Requests.AssistanceRequest", null)
+                        .WithMany()
+                        .HasForeignKey("AssistanceRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Requests.RequestStatusHistory", b =>
@@ -384,9 +731,50 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                     b.Navigation("Role");
                 });
 
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Volunteers.Volunteer", b =>
+                {
+                    b.HasOne("HumanitarianAidPlatform.Domain.Entities.Users.User", "User")
+                        .WithOne("VolunteerProfile")
+                        .HasForeignKey("HumanitarianAidPlatform.Domain.Entities.Volunteers.Volunteer", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Volunteers.VolunteerTask", b =>
+                {
+                    b.HasOne("HumanitarianAidPlatform.Domain.Entities.Volunteers.Volunteer", "Volunteer")
+                        .WithMany("Tasks")
+                        .HasForeignKey("VolunteerId");
+
+                    b.Navigation("Volunteer");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Donors.Campaign", b =>
+                {
+                    b.Navigation("Donations");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Donors.Donor", b =>
+                {
+                    b.Navigation("Donations");
+                });
+
             modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Requests.AssistanceRequest", b =>
                 {
                     b.Navigation("StatusHistory");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Users.User", b =>
+                {
+                    b.Navigation("DonorProfile");
+
+                    b.Navigation("VolunteerProfile");
+                });
+
+            modelBuilder.Entity("HumanitarianAidPlatform.Domain.Entities.Volunteers.Volunteer", b =>
+                {
+                    b.Navigation("Tasks");
                 });
 #pragma warning restore 612, 618
         }

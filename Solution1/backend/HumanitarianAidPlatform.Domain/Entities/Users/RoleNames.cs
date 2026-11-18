@@ -7,6 +7,8 @@ namespace HumanitarianAidPlatform.Domain.Entities.Users;
 public static class RoleNames
 {
     public const string Citizen = "Citizen";
+    public const string Volunteer = "Volunteer";
+    public const string Donor = "Donor";
     public const string Coordinator = "Coordinator";
     public const string CaseManager = "CaseManager";
     public const string ResourceManager = "ResourceManager";

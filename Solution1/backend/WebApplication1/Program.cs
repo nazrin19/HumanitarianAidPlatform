@@ -151,6 +151,18 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 
 var app = builder.Build();
 
+if (args.Contains("--reset-admin-password", StringComparer.Ordinal))
+{
+    if (args.Length != 1)
+    {
+        throw new InvalidOperationException(
+            "--reset-admin-password must be the only application argument.");
+    }
+
+    await ResetAdminPasswordAsync(app);
+    return;
+}
+
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
 app.UseCors(ReactDevelopmentCors);
@@ -192,3 +204,69 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+static async Task ResetAdminPasswordAsync(WebApplication app)
+{
+    Console.Write("Existing Admin email: ");
+    var email = Console.ReadLine();
+    if (string.IsNullOrWhiteSpace(email))
+    {
+        Console.Error.WriteLine("An Admin email is required.");
+        Environment.ExitCode = 1;
+        return;
+    }
+
+    var password = ReadHiddenInput("New password (12+ characters): ");
+    var confirmation = ReadHiddenInput("Confirm new password: ");
+    if (!string.Equals(password, confirmation, StringComparison.Ordinal))
+    {
+        Console.Error.WriteLine("The passwords did not match. No changes were made.");
+        Environment.ExitCode = 1;
+        return;
+    }
+
+    await using var scope = app.Services.CreateAsyncScope();
+    var adminUsers = scope.ServiceProvider.GetRequiredService<IAdminUserService>();
+    var reset = await adminUsers.ResetActiveAdminPasswordAsync(
+        email,
+        password,
+        CancellationToken.None);
+    if (!reset)
+    {
+        Console.Error.WriteLine("No active Admin account was found for that email. No changes were made.");
+        Environment.ExitCode = 1;
+        return;
+    }
+
+    Console.WriteLine("Admin password updated. Start the API normally and sign in with the new password.");
+}
+
+static string ReadHiddenInput(string prompt)
+{
+    Console.Write(prompt);
+    var value = new StringBuilder();
+    while (true)
+    {
+        var key = Console.ReadKey(intercept: true);
+        if (key.Key == ConsoleKey.Enter)
+        {
+            Console.WriteLine();
+            return value.ToString();
+        }
+
+        if (key.Key == ConsoleKey.Backspace)
+        {
+            if (value.Length > 0)
+            {
+                value.Length--;
+            }
+
+            continue;
+        }
+
+        if (!char.IsControl(key.KeyChar))
+        {
+            value.Append(key.KeyChar);
+        }
+    }
+}

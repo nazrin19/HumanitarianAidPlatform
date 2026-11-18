@@ -2,6 +2,7 @@
 using HumanitarianAidPlatform.Application.Common;
 using HumanitarianAidPlatform.Domain.Entities.Requests;
 using HumanitarianAidPlatform.Domain.Entities.Users;
+using Microsoft.Extensions.Logging;
 
 namespace HumanitarianAidPlatform.Application.Requests;
 
@@ -27,11 +28,16 @@ public class RequestService : IRequestService
 
     private readonly IRequestRepository _repository;
     private readonly IUrgencyClassifier _classifier;
+    private readonly ILogger<RequestService> _logger;
 
-    public RequestService(IRequestRepository repository, IUrgencyClassifier classifier)
+    public RequestService(
+        IRequestRepository repository,
+        IUrgencyClassifier classifier,
+        ILogger<RequestService> logger)
     {
         _repository = repository;
         _classifier = classifier;
+        _logger = logger;
     }
 
     public Task<PagedResult<RequestListItemDto>> GetMineAsync(
@@ -117,10 +123,14 @@ public class RequestService : IRequestService
             await _repository.AttachRecommendationAsync(request.Id, recommendation, history);
             request.Status = RequestStatus.PendingReview;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
-            // TODO (task A4): log this and mark the request "needs manual review".
-            // For now the request stays "Submitted" and a person picks it up.
+            _logger.LogError(
+                exception,
+                "Urgency classification failed for request {RequestId} using {ClassifierName}. " +
+                "The saved request remains available for manual review.",
+                request.Id,
+                _classifier.Name);
         }
 
         return ToDto(request);

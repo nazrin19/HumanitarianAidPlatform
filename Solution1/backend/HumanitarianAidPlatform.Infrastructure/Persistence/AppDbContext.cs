@@ -174,6 +174,11 @@ public class AppDbContext : DbContext
                 .HasMaxLength(256)
                 .IsRequired();
 
+            u.Property(x => x.AccountStatus)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .HasDefaultValue(AccountStatus.Active);
+
             u.HasIndex(x => x.Email)
                 .IsUnique();
         });
@@ -193,6 +198,16 @@ public class AppDbContext : DbContext
                 {
                     Id = Guid.Parse("00000000-0000-0000-0000-000000000001"),
                     Name = RoleNames.Citizen
+                },
+                new Role
+                {
+                    Id = Guid.Parse("00000000-0000-0000-0000-000000000010"),
+                    Name = RoleNames.Volunteer
+                },
+                new Role
+                {
+                    Id = Guid.Parse("00000000-0000-0000-0000-000000000011"),
+                    Name = RoleNames.Donor
                 },
                 new Role
                 {
@@ -255,6 +270,20 @@ public class AppDbContext : DbContext
             v.Property(x => x.FullName).HasMaxLength(150).IsRequired();
             v.Property(x => x.Email).HasMaxLength(256).IsRequired();
             v.HasIndex(x => x.Email).IsUnique();
+            v.HasIndex(x => x.UserId).IsUnique().HasFilter("[UserId] IS NOT NULL");
+            v.HasOne(x => x.User)
+                .WithOne(x => x.VolunteerProfile)
+                .HasForeignKey<Volunteer>(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Donor>(d =>
+        {
+            d.HasIndex(x => x.UserId).IsUnique().HasFilter("[UserId] IS NOT NULL");
+            d.HasOne(x => x.User)
+                .WithOne(x => x.DonorProfile)
+                .HasForeignKey<Donor>(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }
