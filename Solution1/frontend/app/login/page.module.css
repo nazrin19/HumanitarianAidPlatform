@@ -1,0 +1,274 @@
+.page {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100vh;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e8edf1;
+  color: #121b26;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page *,
+.page *::before,
+.page *::after {
+  box-sizing: border-box;
+}
+
+.shell {
+  width: 100%;
+  max-width: 1080px;
+  min-height: 690px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 28px;
+  box-shadow: 0 10px 40px rgba(18, 32, 58, 0.08);
+}
+
+.illustrationPanel {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: #dcf4e7;
+}
+
+.formPanel {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 24px 12px 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #234b3c;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.logo {
+  width: 50px;
+  height: 50px;
+  flex: none;
+}
+
+.main {
+  width: 100%;
+  max-width: 390px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin: 0 auto;
+  padding: 20px 0;
+}
+
+.main h1 {
+  margin: 0 0 10px;
+  text-align: center;
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.subtitle {
+  max-width: 300px;
+  margin: 8px auto 30px;
+  color: #5f6b7a;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.field {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.field label {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.field input {
+  width: 100%;
+  height: 50px;
+  border: 1px solid #d7dde5;
+  border-radius: 999px;
+  background-color: #fff;
+  color: #121b26;
+  font: inherit;
+  font-size: 15px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.field input {
+  padding: 0 20px;
+}
+
+.field input::placeholder {
+  color: #5f6b7a;
+  opacity: 0.8;
+}
+
+.field input:focus {
+  outline: none;
+  border-color: #1b633e;
+  box-shadow: 0 0 0 4px rgba(27, 99, 62, 0.18);
+}
+
+.field input[aria-invalid="true"] {
+  border-color: #c62828;
+}
+
+.passwordField input {
+  padding-right: 50px;
+}
+
+.eye {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: #5f6b7a;
+  cursor: pointer;
+}
+
+.eye:hover {
+  background: #e3f1ea;
+  color: #1b633e;
+}
+
+.eye svg {
+  width: 20px;
+  height: 20px;
+}
+
+.forgot {
+  display: block;
+  margin: -6px 4px 20px;
+  color: #1b633e;
+  text-align: right;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.forgot:hover,
+.register a:hover {
+  text-decoration: underline;
+}
+
+.error {
+  min-height: 20px;
+  margin: -8px 0 8px;
+  color: #c62828;
+  text-align: center;
+  font-size: 13px;
+}
+
+.button {
+  width: 100%;
+  height: 50px;
+  border: 0;
+  border-radius: 999px;
+  background: #1b633e;
+  color: #fff;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.05s;
+}
+
+.button:hover {
+  background: #154f32;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.button:active {
+  transform: scale(0.99);
+}
+
+.page a:focus-visible,
+.page button:focus-visible {
+  outline: 3px solid rgba(27, 99, 62, 0.55);
+  outline-offset: 2px;
+}
+
+.register {
+  margin: 28px 0 0;
+  text-align: center;
+  font-size: 14px;
+}
+
+.register a {
+  color: #1b633e;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.overviewImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+@media (max-width: 900px) {
+  .shell {
+    height: auto;
+    grid-template-columns: 1fr;
+    padding: 16px;
+    min-height: 0;
+  }
+
+  .illustrationPanel {
+    display: none;
+  }
+
+  .formPanel {
+    padding: 24px 20px 32px;
+  }
+
+  .main h1 {
+    font-size: 32px;
+  }
+}
+
+@media (min-width: 768px) {
+  .page {
+    padding: 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page * {
+    transition: none !important;
+  }
+}

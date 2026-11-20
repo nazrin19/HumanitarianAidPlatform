@@ -9,3 +9,13 @@
 /.vs/slnx.sqlite
 /.vs/VSWorkspaceState.json
 /.vs/HumanitarianAidPlatform.slnx/FileContentIndex/ad43f5af-38d2-4f0d-9ffb-91a3044402f3.vsidx
+/Solution1/.vs
+/Solution1/HumanitarianAidPlatform.Application/obj
+/Solution1/HumanitarianAidPlatform.Domain/bin/Debug/net10.0
+/Solution1/HumanitarianAidPlatform.Infrastructure/obj
+/Solution1/WebApplication1/bin/Debug/net10.0
+/Solution1/WebApplication1/obj
+/Solution1/HumanitarianAidPlatform.Application/bin/Debug/net10.0
+/Solution1/HumanitarianAidPlatform.Domain/obj
+/Solution1/HumanitarianAidPlatform.Infrastructure/bin/Debug/net10.0
+/Solution1/WebApplication1/HumanitarianAidPlatform.Api.csproj.user
