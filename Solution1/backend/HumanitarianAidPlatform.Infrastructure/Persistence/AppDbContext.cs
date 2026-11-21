@@ -285,5 +285,24 @@ public class AppDbContext : DbContext
                 .HasForeignKey<Donor>(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
+
+        // Donor & Volunteer relationships
+        modelBuilder.Entity<Donation>(d =>
+        {
+            d.HasOne(x => x.Donor).WithMany(x => x.Donations)
+                .HasForeignKey(x => x.DonorId).OnDelete(DeleteBehavior.Restrict);
+            d.HasOne(x => x.Campaign).WithMany(x => x.Donations)
+                .HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<VolunteerTask>(t =>
+        {
+            t.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            t.Property(x => x.Status).HasMaxLength(20);
+            t.HasOne(x => x.Volunteer).WithMany(x => x.Tasks)
+                .HasForeignKey(x => x.VolunteerId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+      
     }
 }
