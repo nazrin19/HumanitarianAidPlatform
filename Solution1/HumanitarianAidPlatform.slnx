@@ -1,9 +1,0 @@
-<Solution>
-  <Folder Name="/Solution Items/">
-    <File Path=".gitignore" />
-  </Folder>
-  <Project Path="HumanitarianAidPlatform.Application/HumanitarianAidPlatform.Application.csproj" Id="a68f372b-3789-4c05-99d5-4717c41792bb" />
-  <Project Path="HumanitarianAidPlatform.Domain/HumanitarianAidPlatform.Domain.csproj" Id="9393de50-9a35-42b6-9537-14e02ec8005a" />
-  <Project Path="HumanitarianAidPlatform.Infrastructure/HumanitarianAidPlatform.Infrastructure.csproj" Id="5647f330-a67f-45b6-9cd9-c04e964be701" />
-  <Project Path="WebApplication1/HumanitarianAidPlatform.Api.csproj" Id="f8409c7e-1d6b-471b-8420-6a84d50b1f4a" />
-</Solution>
