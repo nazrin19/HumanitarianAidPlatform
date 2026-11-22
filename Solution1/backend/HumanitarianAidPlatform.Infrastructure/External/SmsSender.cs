@@ -86,9 +86,10 @@ public sealed class SmsSender : ISmsSender
         catch (Exception exception)
         {
             _logger.LogError(
-                exception,
-                "SMS notification failed for recipient {RecipientMask}, correlation {CorrelationId}",
+                "SMS notification failed for recipient {RecipientMask} with {ErrorCode} ({ExceptionType}), correlation {CorrelationId}",
                 RecipientMasking.Mask(recipient),
+                "SMS_DELIVERY_FAILED",
+                exception.GetType().Name,
                 correlationId);
 
             return new NotificationDeliveryResult(

@@ -220,8 +220,39 @@ public class NotificationServiceTests
         Assert.NotNull(result.ErrorMessage);
         Assert.Contains(logger.Entries,
             entry => entry.Level == LogLevel.Error &&
-                     entry.Exception is InvalidOperationException &&
-                     entry.Message.Contains("unexpected error"));
+                     entry.Exception is null &&
+                     entry.Message.Contains(nameof(InvalidOperationException)) &&
+                     !entry.Message.Contains("Provider unavailable."));
+    }
+
+    [Fact]
+    public async Task ProviderTimeoutIsNotReportedAsCallerCancellation()
+    {
+        var logger = new RecordingLogger<NotificationService>();
+        var service = new NotificationService(
+            new TimeoutEmailSender(),
+            new StubSmsSender(),
+            logger);
+
+        var result = await service.SendAsync(
+            new NotificationRequest
+            {
+                Recipient = "citizen@example.test",
+                Message = "Approved",
+                Channel = NotificationChannel.Email
+            },
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(NotificationDeliveryStatus.Failed, result.Status);
+        Assert.Equal("NOTIFICATION_TIMEOUT", result.ErrorCode);
+        Assert.Equal(1, result.AttemptCount);
+        Assert.Null(result.NextRetryAt);
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("NOTIFICATION_TIMEOUT"));
+        Assert.DoesNotContain(logger.Messages, message =>
+            message.Contains("private details"));
     }
 
     [Fact]
@@ -420,6 +451,184 @@ public class NotificationServiceTests
     }
 
     [Fact]
+    public async Task SmsLogsMaskRecipientPhoneNumber()
+    {
+        const string recipient = "+1 (555) 555-0100";
+        var logger = new RecordingLogger<SmsSender>();
+        var sender = new SmsSender(
+            new ConfigurationBuilder().Build(),
+            logger);
+
+        await sender.SendAsync(
+            recipient,
+            "Approved",
+            Guid.NewGuid(),
+            CancellationToken.None);
+
+        Assert.DoesNotContain(logger.Messages, message => message.Contains(recipient));
+        Assert.Contains(logger.Messages, message => message.Contains("***0100"));
+    }
+
+    [Fact]
+    public async Task RepeatedEventAndChannelReturnsCachedOutcomeWithoutSecondDelivery()
+    {
+        var sender = new StubEmailSender();
+        var deduplicator = new NotificationDeliveryDeduplicator();
+        var firstService = new NotificationService(
+            sender,
+            new StubSmsSender(),
+            deduplicator,
+            new RecordingLogger<NotificationService>());
+        var secondService = new NotificationService(
+            sender,
+            new StubSmsSender(),
+            deduplicator,
+            new RecordingLogger<NotificationService>());
+        var request = new NotificationRequest
+        {
+            EventId = Guid.NewGuid(),
+            Recipient = "citizen@example.test",
+            Message = "Approved",
+            Channel = NotificationChannel.Email
+        };
+
+        var first = await firstService.SendAsync(request, CancellationToken.None);
+        var repeated = await secondService.SendAsync(request, CancellationToken.None);
+
+        Assert.Equal(1, sender.SendCount);
+        Assert.True(first.Succeeded);
+        Assert.False(first.IsDuplicate);
+        Assert.True(repeated.IsDuplicate);
+        Assert.Equal(first.CorrelationId, repeated.CorrelationId);
+        Assert.Equal(first.AttemptCount, repeated.AttemptCount);
+    }
+
+    [Fact]
+    public async Task EventDeduplicationIsScopedByChannelAndRecipient()
+    {
+        var emailSender = new StubEmailSender();
+        var smsSender = new StubSmsSender();
+        var service = new NotificationService(
+            emailSender,
+            smsSender,
+            new NotificationDeliveryDeduplicator(),
+            new RecordingLogger<NotificationService>());
+        var eventId = Guid.NewGuid();
+
+        await service.SendAsync(
+            new NotificationRequest
+            {
+                EventId = eventId,
+                Recipient = "citizen@example.test",
+                Message = "Approved",
+                Channel = NotificationChannel.Email
+            },
+            CancellationToken.None);
+        await service.SendAsync(
+            new NotificationRequest
+            {
+                EventId = eventId,
+                Recipient = "other@example.test",
+                Message = "Approved",
+                Channel = NotificationChannel.Email
+            },
+            CancellationToken.None);
+        await service.SendAsync(
+            new NotificationRequest
+            {
+                EventId = eventId,
+                Recipient = "+1 (555) 555-0100",
+                Message = "Approved",
+                Channel = NotificationChannel.Sms
+            },
+            CancellationToken.None);
+        var repeatedSms = await service.SendAsync(
+            new NotificationRequest
+            {
+                EventId = eventId,
+                Recipient = "+15555550100",
+                Message = "Approved",
+                Channel = NotificationChannel.Sms
+            },
+            CancellationToken.None);
+
+        Assert.Equal(2, emailSender.SendCount);
+        Assert.Equal(1, smsSender.SendCount);
+        Assert.True(repeatedSms.IsDuplicate);
+    }
+
+    [Fact]
+    public async Task CompletedFailureIsReusedForRepeatedEvent()
+    {
+        var sender = new StubEmailSender
+        {
+            Result = new NotificationDeliveryResult(
+                false,
+                NotificationDeliveryStatus.Failed,
+                NotificationChannel.Email,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
+                "EMAIL_DELIVERY_FAILED",
+                "The email provider could not deliver the notification.")
+        };
+        var service = new NotificationService(
+            sender,
+            new StubSmsSender(),
+            new NotificationDeliveryDeduplicator(),
+            new RecordingLogger<NotificationService>());
+        var request = new NotificationRequest
+        {
+            EventId = Guid.NewGuid(),
+            Recipient = "citizen@example.test",
+            Message = "Approved",
+            Channel = NotificationChannel.Email
+        };
+
+        var first = await service.SendAsync(request, CancellationToken.None);
+        var repeated = await service.SendAsync(request, CancellationToken.None);
+
+        Assert.False(first.Succeeded);
+        Assert.True(repeated.IsDuplicate);
+        Assert.Equal(1, sender.SendCount);
+        Assert.Equal("EMAIL_DELIVERY_FAILED", repeated.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConcurrentDuplicateEventWaitsForOriginalDelivery()
+    {
+        var sender = new BlockingEmailSender();
+        var deduplicator = new NotificationDeliveryDeduplicator();
+        var service1 = new NotificationService(
+            sender,
+            new StubSmsSender(),
+            deduplicator,
+            new RecordingLogger<NotificationService>());
+        var service2 = new NotificationService(
+            sender,
+            new StubSmsSender(),
+            deduplicator,
+            new RecordingLogger<NotificationService>());
+        var request = new NotificationRequest
+        {
+            EventId = Guid.NewGuid(),
+            Recipient = "citizen@example.test",
+            Message = "Approved",
+            Channel = NotificationChannel.Email
+        };
+
+        var originalTask = service1.SendAsync(request, CancellationToken.None);
+        await sender.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var duplicateTask = service2.SendAsync(request, CancellationToken.None);
+        sender.Release.TrySetResult();
+
+        var results = await Task.WhenAll(originalTask, duplicateTask);
+
+        Assert.Equal(1, sender.SendCount);
+        Assert.Single(results, result => !result.IsDuplicate);
+        Assert.Single(results, result => result.IsDuplicate);
+    }
+
+    [Fact]
     public async Task DeliveryResultIncludesCorrelationAndAttemptMetadata()
     {
         var service = new NotificationService(
@@ -480,12 +689,15 @@ public class NotificationServiceTests
                 null,
                 null);
 
+        public int SendCount { get; private set; }
+
         public Task<NotificationDeliveryResult> SendAsync(
             string recipient,
             string message,
             Guid correlationId,
             CancellationToken cancellationToken)
         {
+            SendCount++;
             return Task.FromResult(Result);
         }
     }
@@ -522,6 +734,50 @@ public class NotificationServiceTests
                     DateTimeOffset.UtcNow,
                     null,
                     null));
+        }
+    }
+
+    private sealed class TimeoutEmailSender : IEmailSender
+    {
+        public Task<NotificationDeliveryResult> SendAsync(
+            string recipient,
+            string? subject,
+            string message,
+            Guid correlationId,
+            CancellationToken cancellationToken) =>
+            Task.FromException<NotificationDeliveryResult>(
+                new OperationCanceledException("Provider timeout with private details."));
+    }
+
+    private sealed class BlockingEmailSender : IEmailSender
+    {
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Release { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int SendCount { get; private set; }
+
+        public async Task<NotificationDeliveryResult> SendAsync(
+            string recipient,
+            string? subject,
+            string message,
+            Guid correlationId,
+            CancellationToken cancellationToken)
+        {
+            SendCount++;
+            Started.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+            return new NotificationDeliveryResult(
+                true,
+                NotificationDeliveryStatus.Sent,
+                NotificationChannel.Email,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
+                null,
+                null,
+                correlationId);
         }
     }
 

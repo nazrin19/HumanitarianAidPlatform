@@ -8,4 +8,5 @@ public sealed class NominatimOptions
     public string UserAgent { get; set; } = string.Empty;
     public int TimeoutSeconds { get; set; } = 10;
     public int MaximumCandidates { get; set; } = 5;
+    public int MaximumRetries { get; set; } = 2;
 }

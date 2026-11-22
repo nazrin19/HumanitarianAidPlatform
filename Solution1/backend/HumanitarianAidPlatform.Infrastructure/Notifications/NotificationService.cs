@@ -9,15 +9,30 @@ public sealed class NotificationService : INotificationService
 {
     private readonly IEmailSender _emailSender;
     private readonly ISmsSender _smsSender;
+    private readonly NotificationDeliveryDeduplicator _deduplicator;
     private readonly ILogger<NotificationService> _logger;
 
     public NotificationService(
         IEmailSender emailSender,
         ISmsSender smsSender,
         ILogger<NotificationService> logger)
+        : this(
+            emailSender,
+            smsSender,
+            new NotificationDeliveryDeduplicator(),
+            logger)
+    {
+    }
+
+    public NotificationService(
+        IEmailSender emailSender,
+        ISmsSender smsSender,
+        NotificationDeliveryDeduplicator deduplicator,
+        ILogger<NotificationService> logger)
     {
         _emailSender = emailSender;
         _smsSender = smsSender;
+        _deduplicator = deduplicator;
         _logger = logger;
     }
 
@@ -34,6 +49,46 @@ public sealed class NotificationService : INotificationService
                 "The requested notification channel is invalid.");
         }
 
+        if (request.EventId is not Guid eventId || eventId == Guid.Empty)
+        {
+            return await SendCoreAsync(request, cancellationToken);
+        }
+
+        try
+        {
+            var result = await _deduplicator.ExecuteAsync(
+                eventId,
+                request.Channel,
+                request.Recipient,
+                () => SendCoreAsync(request, cancellationToken),
+                cancellationToken);
+
+            if (result.IsDuplicate)
+            {
+                _logger.LogInformation(
+                    "Duplicate notification event {EventId} suppressed for {Channel}, correlation {CorrelationId}",
+                    eventId,
+                    request.Channel,
+                    result.CorrelationId);
+            }
+
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            var correlationId = Guid.NewGuid();
+            _logger.LogInformation(
+                "Duplicate notification wait was cancelled for {Channel}, correlation {CorrelationId}",
+                request.Channel,
+                correlationId);
+            return CancelledResult(request.Channel, correlationId, DateTimeOffset.UtcNow);
+        }
+    }
+
+    private async Task<NotificationDeliveryResult> SendCoreAsync(
+        NotificationRequest request,
+        CancellationToken cancellationToken)
+    {
         var attemptedAt = DateTimeOffset.UtcNow;
         var correlationId = Guid.NewGuid();
         var recipientMask = RecipientMasking.Mask(request.Recipient);
@@ -82,7 +137,11 @@ public sealed class NotificationService : INotificationService
                     null)
             };
 
-            result = result with { CorrelationId = correlationId };
+            result = result with
+            {
+                CorrelationId = correlationId,
+                AttemptCount = Math.Max(result.AttemptCount, 1)
+            };
 
             if (result.Succeeded)
             {
@@ -104,31 +163,30 @@ public sealed class NotificationService : INotificationService
 
             return result;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             _logger.LogInformation(
                 "Notification delivery was cancelled through {Channel}, correlation {CorrelationId}",
                 request.Channel,
                 correlationId);
 
-            return new NotificationDeliveryResult(
-                false,
-                NotificationDeliveryStatus.Cancelled,
-                request.Channel,
-                attemptedAt,
-                DateTimeOffset.UtcNow,
-                "NOTIFICATION_CANCELLED",
-                "The notification delivery was cancelled.",
-                correlationId,
-                1,
-                null);
+            return CancelledResult(request.Channel, correlationId, attemptedAt);
+        }
+        catch (TimeoutException)
+        {
+            return ProviderTimeoutResult(request.Channel, correlationId, attemptedAt);
+        }
+        catch (OperationCanceledException)
+        {
+            return ProviderTimeoutResult(request.Channel, correlationId, attemptedAt);
         }
         catch (Exception exception)
         {
             _logger.LogError(
-                exception,
-                "Notification delivery threw an unexpected error through {Channel}, correlation {CorrelationId}",
+                "Notification delivery failed through {Channel} with {ErrorCode} ({ExceptionType}), correlation {CorrelationId}",
                 request.Channel,
+                "NOTIFICATION_DELIVERY_ERROR",
+                exception.GetType().Name,
                 correlationId);
 
             return new NotificationDeliveryResult(
@@ -143,6 +201,46 @@ public sealed class NotificationService : INotificationService
                 1,
                 null);
         }
+    }
+
+    private static NotificationDeliveryResult CancelledResult(
+        NotificationChannel channel,
+        Guid correlationId,
+        DateTimeOffset attemptedAt) =>
+        new(
+            false,
+            NotificationDeliveryStatus.Cancelled,
+            channel,
+            attemptedAt,
+            DateTimeOffset.UtcNow,
+            "NOTIFICATION_CANCELLED",
+            "The notification delivery was cancelled.",
+            correlationId,
+            1,
+            null);
+
+    private NotificationDeliveryResult ProviderTimeoutResult(
+        NotificationChannel channel,
+        Guid correlationId,
+        DateTimeOffset attemptedAt)
+    {
+        _logger.LogWarning(
+            "Notification provider failed with {ErrorCode} through {Channel}, correlation {CorrelationId}",
+            "NOTIFICATION_TIMEOUT",
+            channel,
+            correlationId);
+
+        return new NotificationDeliveryResult(
+            false,
+            NotificationDeliveryStatus.Failed,
+            channel,
+            attemptedAt,
+            DateTimeOffset.UtcNow,
+            "NOTIFICATION_TIMEOUT",
+            "The notification provider did not respond in time.",
+            correlationId,
+            1,
+            null);
     }
 
     public Task<NotificationDeliveryResult> SendAssistanceRequestStatusAsync(
@@ -173,6 +271,7 @@ public sealed class NotificationService : INotificationService
             {
                 Recipient = request.Recipient,
                 Channel = request.Channel,
+                EventId = request.EventId,
                 Subject = $"Assistance request status: {request.Status}",
                 Message = $"Assistance request {request.AssistanceRequestId} is now {request.Status}.{note}"
             },
@@ -216,6 +315,7 @@ public sealed class NotificationService : INotificationService
             {
                 Recipient = request.Recipient,
                 Channel = request.Channel,
+                EventId = request.EventId,
                 Subject = "Resource allocation and assignment update",
                 Message = $"Allocation {request.AllocationId} for assistance request " +
                           $"{request.AssistanceRequestId} allocated {request.Quantity} {resource} " +

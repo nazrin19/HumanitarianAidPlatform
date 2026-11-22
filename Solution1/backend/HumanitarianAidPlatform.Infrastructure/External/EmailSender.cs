@@ -87,9 +87,10 @@ public sealed class EmailSender : IEmailSender
         catch (Exception exception)
         {
             _logger.LogError(
-                exception,
-                "Email notification failed for recipient {RecipientMask}, correlation {CorrelationId}",
+                "Email notification failed for recipient {RecipientMask} with {ErrorCode} ({ExceptionType}), correlation {CorrelationId}",
                 RecipientMasking.Mask(recipient),
+                "EMAIL_DELIVERY_FAILED",
+                exception.GetType().Name,
                 correlationId);
 
             return new NotificationDeliveryResult(

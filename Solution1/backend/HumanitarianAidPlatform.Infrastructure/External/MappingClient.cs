@@ -66,7 +66,7 @@ public sealed class MappingClient : IGeocodingService
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    return HttpFailure(response.StatusCode, "forward");
+                    return HttpFailure(response, "forward");
                 }
 
                 var places = await response.Content.ReadFromJsonAsync<List<NominatimPlace>>(
@@ -122,7 +122,7 @@ public sealed class MappingClient : IGeocodingService
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    return HttpFailure(response.StatusCode, "reverse");
+                    return HttpFailure(response, "reverse");
                 }
 
                 var place = await response.Content.ReadFromJsonAsync<NominatimPlace>(
@@ -149,93 +149,201 @@ public sealed class MappingClient : IGeocodingService
         CancellationToken cancellationToken,
         Func<CancellationToken, Task<GeocodingResult>> action)
     {
-        var startedAt = DateTimeOffset.UtcNow;
-        using var timeoutSource =
+        var maximumAttempts = Math.Clamp(_options.MaximumRetries, 0, 2) + 1;
+        using var overallTimeoutSource =
             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(TimeSpan.FromSeconds(_options.TimeoutSeconds));
+        overallTimeoutSource.CancelAfter(TimeSpan.FromSeconds(_options.TimeoutSeconds));
+        var perAttemptTimeout = TimeSpan.FromTicks(
+            Math.Max(
+                1,
+                TimeSpan.FromSeconds(_options.TimeoutSeconds).Ticks / maximumAttempts));
 
-        try
+        for (var attempt = 1; attempt <= maximumAttempts; attempt++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var result = await action(timeoutSource.Token);
-            _logger.LogInformation(
-                "Nominatim {Operation} completed with {Status}",
-                operation,
-                result.Status);
-            return result;
+            using var timeoutSource =
+                CancellationTokenSource.CreateLinkedTokenSource(overallTimeoutSource.Token);
+            timeoutSource.CancelAfter(perAttemptTimeout);
+
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var result = await action(timeoutSource.Token);
+                _logger.LogInformation(
+                    "Nominatim {Operation} completed with {Status} after {AttemptCount} attempts",
+                    operation,
+                    result.Status,
+                    attempt);
+                return result;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return LogCancelled(operation);
+            }
+            catch (OperationCanceledException) when (overallTimeoutSource.IsCancellationRequested)
+            {
+                return LogTimeout(operation, attempt);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning(
+                    "Nominatim {Operation} timed out on attempt {AttemptCount}",
+                    operation,
+                    attempt);
+
+                if (attempt < maximumAttempts)
+                {
+                    if (await WaitBeforeRetryAsync(
+                            Backoff(attempt),
+                            overallTimeoutSource.Token))
+                    {
+                        continue;
+                    }
+
+                    return CallerCancelledOrTimeout(
+                        operation,
+                        attempt,
+                        cancellationToken,
+                        overallTimeoutSource.Token);
+                }
+
+                return Failure(
+                    GeocodingStatus.ProviderUnavailable,
+                    "GEOCODING_TIMEOUT",
+                    "The location provider did not respond in time.");
+            }
+            catch (TransientHttpException exception)
+            {
+                _logger.LogWarning(
+                    "Nominatim {Operation} returned transient HTTP status {StatusCode} on attempt {AttemptCount}",
+                    operation,
+                    (int)exception.StatusCode,
+                    attempt);
+
+                var delay = RetryDelay(attempt, exception.RetryAfter);
+                if (attempt < maximumAttempts && delay is TimeSpan retryDelay)
+                {
+                    if (await WaitBeforeRetryAsync(
+                            retryDelay,
+                            overallTimeoutSource.Token))
+                    {
+                        continue;
+                    }
+
+                    return CallerCancelledOrTimeout(
+                        operation,
+                        attempt,
+                        cancellationToken,
+                        overallTimeoutSource.Token);
+                }
+
+                return HttpFailure(exception.StatusCode, operation);
+            }
+            catch (HttpRequestException exception)
+            {
+                _logger.LogWarning(
+                    "Nominatim {Operation} network request failed on attempt {AttemptCount} ({ExceptionType})",
+                    operation,
+                    attempt,
+                    exception.GetType().Name);
+
+                if (attempt < maximumAttempts &&
+                    await WaitBeforeRetryAsync(
+                        Backoff(attempt),
+                        overallTimeoutSource.Token))
+                {
+                    continue;
+                }
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return LogCancelled(operation);
+                }
+                if (overallTimeoutSource.IsCancellationRequested)
+                {
+                    return LogTimeout(operation, attempt);
+                }
+
+                return Failure(
+                    GeocodingStatus.ProviderUnavailable,
+                    "GEOCODING_NETWORK_ERROR",
+                    "The location provider is currently unavailable.");
+            }
+            catch (IOException exception)
+            {
+                _logger.LogWarning(
+                    "Nominatim {Operation} response stream failed on attempt {AttemptCount} ({ExceptionType})",
+                    operation,
+                    attempt,
+                    exception.GetType().Name);
+
+                if (attempt < maximumAttempts &&
+                    await WaitBeforeRetryAsync(
+                        Backoff(attempt),
+                        overallTimeoutSource.Token))
+                {
+                    continue;
+                }
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return LogCancelled(operation);
+                }
+                if (overallTimeoutSource.IsCancellationRequested)
+                {
+                    return LogTimeout(operation, attempt);
+                }
+
+                return Failure(
+                    GeocodingStatus.ProviderUnavailable,
+                    "GEOCODING_NETWORK_ERROR",
+                    "The location provider is currently unavailable.");
+            }
+            catch (JsonException exception)
+            {
+                _logger.LogWarning(
+                    "Nominatim {Operation} returned an invalid response ({ExceptionType})",
+                    operation,
+                    exception.GetType().Name);
+                return Failure(
+                    GeocodingStatus.ProviderUnavailable,
+                    "GEOCODING_INVALID_RESPONSE",
+                    "The location provider returned an invalid response.");
+            }
+            catch (UriFormatException exception)
+            {
+                _logger.LogError(
+                    "Nominatim {Operation} URL configuration is invalid ({ExceptionType})",
+                    operation,
+                    exception.GetType().Name);
+                return Failure(
+                    GeocodingStatus.ProviderUnavailable,
+                    "GEOCODING_CONFIGURATION_ERROR",
+                    "Location lookup is not configured correctly.");
+            }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+
+        throw new InvalidOperationException("The geocoding retry loop exited unexpectedly.");
+    }
+
+    private GeocodingResult HttpFailure(HttpResponseMessage response, string operation)
+    {
+        var statusCode = response.StatusCode;
+        if (IsTransient(statusCode))
         {
-            _logger.LogInformation(
-                "Nominatim {Operation} was cancelled",
-                operation);
-            return Failure(
-                GeocodingStatus.Cancelled,
-                "GEOCODING_CANCELLED",
-                "The location lookup was cancelled.");
+            throw new TransientHttpException(
+                statusCode,
+                GetRetryAfter(response));
         }
-        catch (OperationCanceledException)
-        {
-            _logger.LogWarning(
-                "Nominatim {Operation} timed out after {ElapsedMilliseconds} ms",
-                operation,
-                (long)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
-            return Failure(
-                GeocodingStatus.ProviderUnavailable,
-                "GEOCODING_TIMEOUT",
-                "The location provider did not respond in time.");
-        }
-        catch (HttpRequestException exception)
-        {
-            _logger.LogWarning(
-                "Nominatim {Operation} network request failed with {ExceptionType}",
-                operation,
-                exception.GetType().Name);
-            return Failure(
-                GeocodingStatus.ProviderUnavailable,
-                "GEOCODING_NETWORK_ERROR",
-                "The location provider is currently unavailable.");
-        }
-        catch (IOException exception)
-        {
-            _logger.LogWarning(
-                "Nominatim {Operation} response stream failed with {ExceptionType}",
-                operation,
-                exception.GetType().Name);
-            return Failure(
-                GeocodingStatus.ProviderUnavailable,
-                "GEOCODING_NETWORK_ERROR",
-                "The location provider is currently unavailable.");
-        }
-        catch (JsonException exception)
-        {
-            _logger.LogWarning(
-                "Nominatim {Operation} returned an invalid response ({ExceptionType})",
-                operation,
-                exception.GetType().Name);
-            return Failure(
-                GeocodingStatus.ProviderUnavailable,
-                "GEOCODING_INVALID_RESPONSE",
-                "The location provider returned an invalid response.");
-        }
-        catch (UriFormatException exception)
-        {
-            _logger.LogError(
-                "Nominatim {Operation} URL configuration is invalid ({ExceptionType})",
-                operation,
-                exception.GetType().Name);
-            return Failure(
-                GeocodingStatus.ProviderUnavailable,
-                "GEOCODING_CONFIGURATION_ERROR",
-                "Location lookup is not configured correctly.");
-        }
+
+        return HttpFailure(statusCode, operation);
     }
 
     private GeocodingResult HttpFailure(HttpStatusCode statusCode, string operation)
     {
         _logger.LogWarning(
-            "Nominatim {Operation} returned HTTP status {StatusCode}",
+            "Nominatim {Operation} failed with {ErrorCode} and HTTP status {StatusCode}",
             operation,
+            "GEOCODING_HTTP_ERROR",
             (int)statusCode);
         return Failure(
             GeocodingStatus.ProviderUnavailable,
@@ -243,9 +351,118 @@ public sealed class MappingClient : IGeocodingService
             "The location provider could not complete the lookup.");
     }
 
-    private static GeocodingCandidate ParseCandidate(NominatimPlace place)
+    private GeocodingResult LogCancelled(string operation)
     {
-        if (!double.TryParse(
+        _logger.LogInformation("Nominatim {Operation} was cancelled", operation);
+        return Failure(
+            GeocodingStatus.Cancelled,
+            "GEOCODING_CANCELLED",
+            "The location lookup was cancelled.");
+    }
+
+    private GeocodingResult LogTimeout(string operation, int attempt)
+    {
+        _logger.LogWarning(
+            "Nominatim {Operation} failed with {ErrorCode} after {AttemptCount} attempts",
+            operation,
+            "GEOCODING_TIMEOUT",
+            attempt);
+        return Failure(
+            GeocodingStatus.ProviderUnavailable,
+            "GEOCODING_TIMEOUT",
+            "The location provider did not respond in time.");
+    }
+
+    private GeocodingResult CallerCancelledOrTimeout(
+        string operation,
+        int attempt,
+        CancellationToken callerToken,
+        CancellationToken overallTimeoutToken) =>
+        callerToken.IsCancellationRequested
+            ? LogCancelled(operation)
+            : overallTimeoutToken.IsCancellationRequested
+                ? LogTimeout(operation, attempt)
+                : Failure(
+                    GeocodingStatus.ProviderUnavailable,
+                    "GEOCODING_TIMEOUT",
+                    "The location provider did not respond in time.");
+
+    private static bool IsTransient(HttpStatusCode statusCode) =>
+        statusCode is HttpStatusCode.RequestTimeout
+            or HttpStatusCode.TooManyRequests
+            or HttpStatusCode.InternalServerError
+            or HttpStatusCode.BadGateway
+            or HttpStatusCode.ServiceUnavailable
+            or HttpStatusCode.GatewayTimeout;
+
+    private static TimeSpan? GetRetryAfter(HttpResponseMessage response)
+    {
+        var retryAfter = response.Headers.RetryAfter;
+        if (retryAfter?.Delta is TimeSpan delta)
+        {
+            return delta > TimeSpan.Zero ? delta : TimeSpan.Zero;
+        }
+
+        if (retryAfter?.Date is DateTimeOffset date)
+        {
+            var delay = date - DateTimeOffset.UtcNow;
+            return delay > TimeSpan.Zero ? delay : TimeSpan.Zero;
+        }
+
+        return null;
+    }
+
+    private static TimeSpan Backoff(int failedAttempt) =>
+        TimeSpan.FromMilliseconds(
+            Math.Min(250 * Math.Pow(2, failedAttempt - 1), 1000) +
+            Random.Shared.Next(0, 101));
+
+    private static TimeSpan? RetryDelay(int failedAttempt, TimeSpan? retryAfter)
+    {
+        var delay = Backoff(failedAttempt);
+        if (retryAfter is TimeSpan requestedDelay)
+        {
+            if (requestedDelay > TimeSpan.FromSeconds(5))
+            {
+                return null;
+            }
+
+            if (requestedDelay > delay)
+            {
+                delay = requestedDelay;
+            }
+        }
+
+        return delay;
+    }
+
+    private static async Task<bool> WaitBeforeRetryAsync(
+        TimeSpan delay,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(delay, cancellationToken);
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
+    private sealed class TransientHttpException(
+        HttpStatusCode statusCode,
+        TimeSpan? retryAfter) : Exception
+    {
+        public HttpStatusCode StatusCode { get; } = statusCode;
+        public TimeSpan? RetryAfter { get; } = retryAfter;
+    }
+
+    private static GeocodingCandidate ParseCandidate(NominatimPlace? place)
+    {
+        if (place is null ||
+            !double.TryParse(
                 place.Latitude,
                 NumberStyles.Float,
                 CultureInfo.InvariantCulture,

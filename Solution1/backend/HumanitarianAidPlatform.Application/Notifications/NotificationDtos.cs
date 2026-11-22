@@ -7,6 +7,12 @@ namespace HumanitarianAidPlatform.Application.Notifications;
 /// <summary>Describes a generic notification to deliver through an application-selected channel.</summary>
 public sealed record NotificationRequest
 {
+    /// <summary>
+    /// Optional stable event identifier used to suppress recent duplicate
+    /// deliveries to the same recipient through the same channel.
+    /// </summary>
+    public Guid? EventId { get; init; }
+
     [Required, RegularExpression(@".*\S.*", ErrorMessage = "Recipient must not be blank.")]
     public required string Recipient { get; init; }
 
@@ -23,6 +29,9 @@ public sealed record NotificationRequest
 /// <summary>Describes an assistance-request status update notification.</summary>
 public sealed record AssistanceRequestStatusNotificationRequest
 {
+    /// <summary>Optional stable identifier for this status-change event.</summary>
+    public Guid? EventId { get; init; }
+
     [Required, RegularExpression(@".*\S.*", ErrorMessage = "Recipient must not be blank.")]
     public required string Recipient { get; init; }
 
@@ -40,6 +49,9 @@ public sealed record AssistanceRequestStatusNotificationRequest
 /// <summary>Describes a resource allocation or assignment notification.</summary>
 public sealed record AllocationAssignmentNotificationRequest
 {
+    /// <summary>Optional stable identifier for this allocation event.</summary>
+    public Guid? EventId { get; init; }
+
     [Required, RegularExpression(@".*\S.*", ErrorMessage = "Recipient must not be blank.")]
     public required string Recipient { get; init; }
 
@@ -62,6 +74,7 @@ public sealed record AllocationAssignmentNotificationRequest
 }
 
 /// <summary>Represents the outcome and diagnostic details of a notification delivery attempt.</summary>
+/// <param name="IsDuplicate">True when this response reuses an earlier delivery outcome.</param>
 public sealed record NotificationDeliveryResult(
     bool Succeeded,
     NotificationDeliveryStatus Status,
@@ -72,4 +85,5 @@ public sealed record NotificationDeliveryResult(
     string? ErrorMessage,
     Guid? CorrelationId = null,
     int AttemptCount = 1,
-    DateTimeOffset? NextRetryAt = null);
+    DateTimeOffset? NextRetryAt = null,
+    bool IsDuplicate = false);

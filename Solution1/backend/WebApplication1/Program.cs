@@ -167,8 +167,9 @@ builder.Services.AddOptions<NominatimOptions>()
             !string.IsNullOrWhiteSpace(options.UserAgent) &&
             options.UserAgent.Contains('@') &&
             options.TimeoutSeconds is >= 1 and <= 120 &&
-            options.MaximumCandidates is >= 2 and <= 10,
-        "Nominatim configuration requires an HTTPS base URL, a contact-bearing User-Agent, a 1-120 second timeout, and 2-10 candidates.")
+            options.MaximumCandidates is >= 2 and <= 10 &&
+            options.MaximumRetries is >= 0 and <= 2,
+        "Nominatim configuration requires an HTTPS base URL, a contact-bearing User-Agent, a 1-120 second timeout, 2-10 candidates, and 0-2 retries.")
     .ValidateOnStart();
 
 // HttpClientFactory logs request URIs, which contain user-entered location text.
@@ -187,11 +188,12 @@ builder.Services.AddHttpClient<IGeocodingService, MappingClient>(
                 ? options.BaseUrl
                 : $"{options.BaseUrl}/",
             UriKind.Absolute);
-        client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+        client.Timeout = Timeout.InfiniteTimeSpan;
         client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
     });
 
 // Notification services
+builder.Services.AddSingleton<NotificationDeliveryDeduplicator>();
 builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddScoped<ISmsSender, SmsSender>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
