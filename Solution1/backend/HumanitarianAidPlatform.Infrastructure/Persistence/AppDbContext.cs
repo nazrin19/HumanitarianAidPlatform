@@ -263,6 +263,13 @@ public class AppDbContext : DbContext
         });
 
         // Donor & Volunteer configuration
+        modelBuilder.Entity<Campaign>(c =>
+        {
+            c.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            c.Property(x => x.Description).HasMaxLength(2000);
+            c.Property(x => x.TargetAmount).HasPrecision(18, 2);
+        });
+
         modelBuilder.Entity<Donation>(d =>
         {
             d.Property(x => x.Amount).HasPrecision(18, 2);

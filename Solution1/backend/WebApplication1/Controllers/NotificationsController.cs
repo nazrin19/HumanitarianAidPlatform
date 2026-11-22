@@ -1,11 +1,13 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using HumanitarianAidPlatform.Application.Notifications;
+using HumanitarianAidPlatform.Domain.Entities.Users;
 
 namespace HumanitarianAidPlatform.Api.Controllers
 {
     [ApiController]
     [Route("api/notifications")]
+    [Authorize(Roles = $"{RoleNames.Admin},{RoleNames.Coordinator},{RoleNames.CaseManager}")]
     public class NotificationsController : ControllerBase
     {
         private readonly INotificationService _notificationService;

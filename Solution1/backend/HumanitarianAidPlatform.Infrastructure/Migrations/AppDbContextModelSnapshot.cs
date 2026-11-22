@@ -29,7 +29,8 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Description")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<DateTime?>("EndDate")
                         .HasColumnType("datetime2");
@@ -39,12 +40,14 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<DateTime>("StartDate")
                         .HasColumnType("datetime2");
 
                     b.Property<decimal>("TargetAmount")
+                        .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
@@ -359,6 +362,12 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<double?>("Latitude")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("Longitude")
+                        .HasColumnType("float");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -631,11 +640,13 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
 
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<string>("Title")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<Guid?>("VolunteerId")
                         .HasColumnType("uniqueidentifier");
@@ -651,12 +662,13 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                 {
                     b.HasOne("HumanitarianAidPlatform.Domain.Entities.Donors.Campaign", "Campaign")
                         .WithMany("Donations")
-                        .HasForeignKey("CampaignId");
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("HumanitarianAidPlatform.Domain.Entities.Donors.Donor", "Donor")
                         .WithMany("Donations")
                         .HasForeignKey("DonorId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Campaign");
@@ -747,7 +759,8 @@ namespace HumanitarianAidPlatform.Infrastructure.Migrations
                 {
                     b.HasOne("HumanitarianAidPlatform.Domain.Entities.Volunteers.Volunteer", "Volunteer")
                         .WithMany("Tasks")
-                        .HasForeignKey("VolunteerId");
+                        .HasForeignKey("VolunteerId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Volunteer");
                 });

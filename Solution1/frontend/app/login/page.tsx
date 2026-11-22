@@ -133,7 +133,7 @@ export default function LoginPage() {
         className={`${styles.shell} w-full max-w-270 min-h-172.5 rounded-[28px] overflow-hidden grid grid-cols-2 bg-white shadow-xl`}
       >
         <section className={styles.formPanel}>
-          <div className={styles.brand}>
+          <Link className={styles.brand} href="/" aria-label="Go to Humanitarian Aid Platform home">
             <Image
               className={styles.logo}
               src="/humanitarian-aid-platform-logo.svg"
@@ -142,7 +142,7 @@ export default function LoginPage() {
               height={50}
             />
             <span>Humanitarian Aid Platform</span>
-          </div>
+          </Link>
 
           <div className={styles.main}>
             <h1>Welcome back!</h1>

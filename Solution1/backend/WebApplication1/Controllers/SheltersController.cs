@@ -6,7 +6,9 @@ using System.Threading.Tasks;
 
 using HumanitarianAidPlatform.Application.Shelters;
 using HumanitarianAidPlatform.Application.Shelters.DTOs;
+using HumanitarianAidPlatform.Domain.Entities.Users;
 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HumanitarianAidPlatform.Api.Controllers;
@@ -45,6 +47,7 @@ public class SheltersController : ControllerBase
 
     // POST: api/shelters
     [HttpPost]
+    [Authorize(Roles = $"{RoleNames.Admin},{RoleNames.ShelterAdmin}")]
     public async Task<ActionResult<ShelterDto>> Create(
         [FromBody] ShelterDto dto)
     {
@@ -58,6 +61,7 @@ public class SheltersController : ControllerBase
 
     // PUT: api/shelters/{id}
     [HttpPut("{id:guid}")]
+    [Authorize(Roles = $"{RoleNames.Admin},{RoleNames.ShelterAdmin}")]
     public async Task<ActionResult<ShelterDto>> Update(
         Guid id,
         [FromBody] ShelterDto dto)
@@ -72,6 +76,7 @@ public class SheltersController : ControllerBase
 
     // PATCH: api/shelters/{id}/occupancy
     [HttpPatch("{id:guid}/occupancy")]
+    [Authorize(Roles = $"{RoleNames.Admin},{RoleNames.ShelterAdmin}")]
     public async Task<ActionResult<ShelterDto>> ChangeOccupancy(
         Guid id,
         [FromBody] ChangeShelterOccupancyDto dto,
@@ -123,6 +128,7 @@ public class SheltersController : ControllerBase
 
     // DELETE: api/shelters/{id}
     [HttpDelete("{id:guid}")]
+    [Authorize(Roles = $"{RoleNames.Admin},{RoleNames.ShelterAdmin}")]
     public async Task<IActionResult> Delete(Guid id)
     {
         var deleted = await _service.DeleteAsync(id);

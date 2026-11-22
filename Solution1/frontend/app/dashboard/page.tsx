@@ -4,19 +4,31 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   CSSProperties,
-  MouseEvent as ReactMouseEvent,
-  PointerEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
+import type { Map as LeafletMapInstance } from "leaflet";
 import {
   AUTH_SESSION_LOADING,
   clearSessionCredentials,
   useSessionRole,
 } from "../lib/auth-session";
 import styles from "./page.module.css";
+import type {
+  MapRequestPoint,
+  MapShelterPoint,
+  MapResourcePoint,
+  MapSelection,
+} from "./LiveAidMap";
+
+const LiveAidMap = dynamic(() => import("./LiveAidMap"), {
+  ssr: false,
+  loading: () => <div className={styles.mapLoading}>Loading map…</div>,
+});
 
 type Urgency = "Critical" | "High" | "Medium" | "Low";
 type RequestStatus =
@@ -28,8 +40,7 @@ type RequestStatus =
   | "Fulfilled"
   | "Rejected";
 type Layer = "req" | "sh" | "res";
-type Selection = { type: Layer; index: number } | null;
-type ViewBox = { x: number; y: number; w: number; h: number };
+type Selection = MapSelection;
 
 type AidRequest = {
   id: string;
@@ -42,8 +53,6 @@ type AidRequest = {
   lvl: Urgency | null;
   sc: number | null;
   st: RequestStatus;
-  x?: number;
-  y?: number;
 };
 
 type ApiAidRequest = {
@@ -65,8 +74,8 @@ type Shelter = {
   p: number;
   u: number;
   c: number;
-  x?: number;
-  y?: number;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 type Depot = {
@@ -75,8 +84,8 @@ type Depot = {
   item: string;
   quantityAvailable: number;
   description: string | null;
-  x: number;
-  y: number;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 type ApiShelter = {
@@ -94,6 +103,8 @@ type ApiResource = {
   category: string;
   quantityAvailable: number;
   description: string | null;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 const urgencyColors: Record<Urgency, string> = {
@@ -112,8 +123,6 @@ const statusClass: Record<RequestStatus, string> = {
   Fulfilled: "completed",
   Rejected: "rejected",
 };
-
-const initialViewBox: ViewBox = { x: 0, y: 0, w: 900, h: 520 };
 
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001"
@@ -195,62 +204,13 @@ function isApiResource(value: unknown): value is ApiResource {
     typeof resource.name === "string" &&
     typeof resource.category === "string" &&
     typeof resource.quantityAvailable === "number" &&
-    (resource.description === null || typeof resource.description === "string")
+    (resource.description === null || typeof resource.description === "string") &&
+    (resource.latitude === null || typeof resource.latitude === "number") &&
+    (resource.longitude === null || typeof resource.longitude === "number")
   );
 }
 
-function positionRequests(requests: AidRequest[]): AidRequest[] {
-  const located = requests.filter(
-    (
-      request,
-    ): request is AidRequest & { latitude: number; longitude: number } =>
-      request.latitude !== null && request.longitude !== null,
-  );
-  if (located.length === 0) return requests;
-
-  const latitudes = located.map((request) => request.latitude);
-  const longitudes = located.map((request) => request.longitude);
-  const minLatitude = Math.min(...latitudes);
-  const maxLatitude = Math.max(...latitudes);
-  const minLongitude = Math.min(...longitudes);
-  const maxLongitude = Math.max(...longitudes);
-
-  return requests.map((request) => {
-    if (request.latitude === null || request.longitude === null) return request;
-    return {
-      ...request,
-      x:
-        maxLongitude === minLongitude
-          ? 450
-          : 100 +
-            ((request.longitude - minLongitude) /
-              (maxLongitude - minLongitude)) *
-              700,
-      y:
-        maxLatitude === minLatitude
-          ? 260
-          : 80 +
-            ((maxLatitude - request.latitude) /
-              (maxLatitude - minLatitude)) *
-              360,
-    };
-  });
-}
-
-function mapShelters(rows: ApiShelter[]): Shelter[] {
-  const located = rows.filter(
-    (
-      shelter,
-    ): shelter is ApiShelter & { latitude: number; longitude: number } =>
-      shelter.latitude !== null && shelter.longitude !== null,
-  );
-  const latitudes = located.map((shelter) => shelter.latitude);
-  const longitudes = located.map((shelter) => shelter.longitude);
-  const minLatitude = located.length ? Math.min(...latitudes) : 0;
-  const maxLatitude = located.length ? Math.max(...latitudes) : 0;
-  const minLongitude = located.length ? Math.min(...longitudes) : 0;
-  const maxLongitude = located.length ? Math.max(...longitudes) : 0;
-
+function mapApiShelters(rows: ApiShelter[]): Shelter[] {
   return rows.map((shelter) => ({
     id: shelter.id,
     n: shelter.name,
@@ -260,48 +220,57 @@ function mapShelters(rows: ApiShelter[]): Shelter[] {
         : 0,
     u: shelter.currentOccupancy,
     c: shelter.capacity,
-    ...(shelter.latitude !== null && shelter.longitude !== null
-      ? {
-          x:
-            maxLongitude === minLongitude
-              ? 450
-              : 100 +
-                ((shelter.longitude - minLongitude) /
-                  (maxLongitude - minLongitude)) *
-                  700,
-          y:
-            maxLatitude === minLatitude
-              ? 260
-              : 80 +
-                ((maxLatitude - shelter.latitude) /
-                  (maxLatitude - minLatitude)) *
-                  360,
-        }
-      : {}),
+    latitude: shelter.latitude,
+    longitude: shelter.longitude,
   }));
 }
 
 function mapResources(rows: ApiResource[]): Depot[] {
-  return rows.map((resource, index) => ({
+  return rows.map((resource) => ({
     id: resource.id,
     n: resource.name,
     item: resource.category,
     quantityAvailable: resource.quantityAvailable,
     description: resource.description,
-    x: 120 + (index % 5) * 165,
-    y: 410 - Math.floor(index / 5) * 90,
+    latitude: resource.latitude,
+    longitude: resource.longitude,
   }));
 }
 
-function clampViewBox(viewBox: ViewBox): ViewBox {
-  const w = Math.max(300, Math.min(900, viewBox.w));
-  const h = (w * 520) / 900;
-  return {
-    x: Math.max(-40, Math.min(940 - w, viewBox.x)),
-    y: Math.max(-30, Math.min(550 - h, viewBox.y)),
-    w,
-    h,
-  };
+function hasValidCoordinates<
+  T extends { latitude: number | null; longitude: number | null },
+>(value: T): value is T & { latitude: number; longitude: number } {
+  return (
+    value.latitude !== null &&
+    value.longitude !== null &&
+    Number.isFinite(value.latitude) &&
+    Number.isFinite(value.longitude) &&
+    value.latitude >= -90 &&
+    value.latitude <= 90 &&
+    value.longitude >= -180 &&
+    value.longitude <= 180
+  );
+}
+
+function distanceKm(
+  latitude1: number,
+  longitude1: number,
+  latitude2: number,
+  longitude2: number,
+) {
+  const earthRadiusKm = 6371;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const deltaLatitude = toRadians(latitude2 - latitude1);
+  const deltaLongitude = toRadians(longitude2 - longitude1);
+  const lat1 = toRadians(latitude1);
+  const lat2 = toRadians(latitude2);
+  const a =
+    Math.sin(deltaLatitude / 2) * Math.sin(deltaLatitude / 2) +
+    Math.cos(lat1) *
+      Math.cos(lat2) *
+      Math.sin(deltaLongitude / 2) *
+      Math.sin(deltaLongitude / 2);
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export default function DashboardPage() {
@@ -317,6 +286,8 @@ export default function DashboardPage() {
   const [isLoadingResources, setIsLoadingResources] = useState(true);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [requestLoadError, setRequestLoadError] = useState("");
+  const [requestActionError, setRequestActionError] = useState("");
+  const [updatingRequestId, setUpdatingRequestId] = useState<string | null>(null);
   const [shelterLoadError, setShelterLoadError] = useState("");
   const [resourceLoadError, setResourceLoadError] = useState("");
   const [layers, setLayers] = useState<Record<Layer, boolean>>({
@@ -327,11 +298,15 @@ export default function DashboardPage() {
   const [urgency, setUrgency] = useState("all");
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState<Selection>(null);
-  const [viewBox, setViewBox] = useState(initialViewBox);
-  const [isDragging, setIsDragging] = useState(false);
-  const mapRef = useRef<SVGSVGElement>(null);
+  const [mapInstance, setMapInstance] = useState<LeafletMapInstance | null>(
+    null,
+  );
+  const [userLocation, setUserLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [locationMessage, setLocationMessage] = useState("");
   const mapCardRef = useRef<HTMLElement>(null);
-  const dragRef = useRef<{ x: number; y: number; viewX: number; viewY: number } | null>(null);
   const normalizedQuery = query.trim().toLowerCase();
 
   useEffect(() => {
@@ -433,7 +408,7 @@ export default function DashboardPage() {
         }
 
         if (active) {
-          setRequests(positionRequests(items.map(mapApiRequest)));
+          setRequests(items.map(mapApiRequest));
           setTotalRequestCount(totalCount);
           setRequestLoadError("");
         }
@@ -490,7 +465,7 @@ export default function DashboardPage() {
           throw new Error("The server returned shelters in an unexpected format.");
         }
         if (active) {
-          setShelters(mapShelters(body));
+          setShelters(mapApiShelters(body));
           setShelterLoadError("");
         }
       } catch (loadError) {
@@ -539,26 +514,115 @@ export default function DashboardPage() {
     };
   }, [accountRole]);
 
-  function matches(value: string) {
-    return value.toLowerCase().includes(normalizedQuery);
-  }
-
-  const visibleRequests = requests
-    .map((request, index) => ({ request, index }))
-    .filter(
-      ({ request }) =>
+  const visibleRequests = useMemo(
+    () =>
+      requests
+        .map((request, index) => ({ request, index }))
+        .filter(
+          ({ request }) =>
         (urgency === "all" ||
           (urgency === "unassessed"
             ? request.lvl === null
             : urgency === request.lvl)) &&
-        matches(
-          `${request.id} ${request.cat} ${request.description} ${request.address ?? ""} ${request.lvl ?? ""} ${request.st}`,
+        `${request.id} ${request.cat} ${request.description} ${request.address ?? ""} ${request.lvl ?? ""} ${request.st}`
+          .toLowerCase()
+          .includes(normalizedQuery),
         ),
-    );
-
-  const matchingShelters = shelters.filter((shelter) => matches(shelter.n));
-  const matchingDepots = depots.filter((depot) =>
-    matches(`${depot.n} ${depot.item} ${depot.description ?? ""}`),
+    [requests, urgency, normalizedQuery],
+  );
+  const matchingShelters = useMemo(
+    () =>
+      shelters
+        .map((shelter, index) => ({ shelter, index }))
+        .filter(({ shelter }) =>
+          shelter.n.toLowerCase().includes(normalizedQuery),
+        ),
+    [shelters, normalizedQuery],
+  );
+  const mapRequests = useMemo<MapRequestPoint[]>(
+    () =>
+      accountRole !== "Citizen" && layers.req
+        ? visibleRequests
+            .flatMap(({ request }) => {
+              if (!hasValidCoordinates(request)) return [];
+              return [
+                {
+                  index: requests.findIndex((item) => item.id === request.id),
+                  id: request.id,
+                  category: request.cat,
+                  latitude: request.latitude,
+                  longitude: request.longitude,
+                  urgency: request.lvl,
+                  status: request.st,
+                },
+              ];
+            })
+        : [],
+    [accountRole, layers.req, requests, visibleRequests],
+  );
+  const mapShelterPoints = useMemo<MapShelterPoint[]>(
+    () =>
+      layers.sh
+        ? matchingShelters
+            .flatMap(({ shelter }) => {
+              if (!hasValidCoordinates(shelter)) return [];
+              if (
+                accountRole === "Citizen" &&
+                userLocation &&
+                distanceKm(
+                  userLocation.latitude,
+                  userLocation.longitude,
+                  shelter.latitude,
+                  shelter.longitude,
+                ) > 50
+              ) {
+                return [];
+              }
+              return [
+                {
+                  index: shelters.findIndex((item) => item.id === shelter.id),
+                  id: shelter.id,
+                  name: shelter.n,
+                  latitude: shelter.latitude,
+                  longitude: shelter.longitude,
+                  currentOccupancy: shelter.u,
+                  capacity: shelter.c,
+                },
+              ];
+            })
+        : [],
+    [accountRole, layers.sh, matchingShelters, shelters, userLocation],
+  );
+  const mapResourcePoints = useMemo<MapResourcePoint[]>(
+    () =>
+      accountRole === "Citizen" && layers.res
+        ? depots.flatMap((resource, index) => {
+            if (!hasValidCoordinates(resource)) return [];
+            if (
+              userLocation &&
+              distanceKm(
+                userLocation.latitude,
+                userLocation.longitude,
+                resource.latitude,
+                resource.longitude,
+              ) > 50
+            ) {
+              return [];
+            }
+            return [
+              {
+                index,
+                id: resource.id,
+                name: resource.n,
+                category: resource.item,
+                quantityAvailable: resource.quantityAvailable,
+                latitude: resource.latitude,
+                longitude: resource.longitude,
+              },
+            ];
+          })
+        : [],
+    [accountRole, depots, layers.res, userLocation],
   );
   const selectedRequest =
     selection?.type === "req" ? requests[selection.index] : undefined;
@@ -598,57 +662,116 @@ export default function DashboardPage() {
   ).length;
 
   function signOut() {
-    window.sessionStorage.removeItem("authToken");
-    window.sessionStorage.removeItem("authRole");
+    clearSessionCredentials();
     router.replace("/login");
   }
 
-  function zoom(factor: number, centerX?: number, centerY?: number) {
-    setViewBox((current) => {
-      const cx = centerX ?? current.x + current.w / 2;
-      const cy = centerY ?? current.y + current.h / 2;
-      const w = current.w * factor;
-      return clampViewBox({
-        x: cx - (cx - current.x) * (w / current.w),
-        y: cy - (cy - current.y) * (w / current.w),
-        w,
-        h: (w * 520) / 900,
-      });
-    });
+  async function updateRequest(
+    request: AidRequest,
+    endpoint: "review" | "status",
+    payload: { action?: string; status?: RequestStatus; reason?: string },
+  ) {
+    const token = window.sessionStorage.getItem("authToken");
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    if (payload.action === "Rejected" || payload.action === "Deferred") {
+      const reason = window.prompt("Enter a reason for this decision:");
+      if (!reason?.trim()) return;
+      payload.reason = reason.trim();
+    }
+
+    setUpdatingRequestId(request.id);
+    setRequestActionError("");
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/requests/${request.id}/${endpoint}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      const responseBody: unknown = await response.json().catch(() => undefined);
+      if (response.status === 401) {
+        clearSessionCredentials();
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        const body =
+          responseBody && typeof responseBody === "object"
+            ? (responseBody as { detail?: unknown; title?: unknown })
+            : {};
+        const message = body.detail ?? body.title;
+        throw new Error(
+          typeof message === "string"
+            ? message
+            : `Unable to update request (${response.status}).`,
+        );
+      }
+
+      const updatedStatus =
+        responseBody &&
+        typeof responseBody === "object" &&
+        typeof (responseBody as { status?: unknown }).status === "string"
+          ? (responseBody as { status: string }).status
+          : null;
+      if (!updatedStatus || !requestStatuses.includes(updatedStatus as RequestStatus)) {
+        throw new Error("The server returned an invalid request status.");
+      }
+
+      setRequests((current) =>
+        current.map((item) =>
+          item.id === request.id
+            ? { ...item, st: updatedStatus as RequestStatus }
+            : item,
+        ),
+      );
+    } catch (error) {
+      setRequestActionError(
+        error instanceof Error
+          ? error.message
+          : "Unable to update the request. Please try again.",
+      );
+    } finally {
+      setUpdatingRequestId(null);
+    }
   }
 
-  function handleMapPointerDown(event: PointerEvent<SVGSVGElement>) {
-    if ((event.target as Element).closest(".mapMarker")) return;
-    dragRef.current = {
-      x: event.clientX,
-      y: event.clientY,
-      viewX: viewBox.x,
-      viewY: viewBox.y,
-    };
-    setIsDragging(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
+  function findNearbyPlaces() {
+    if (!navigator.geolocation) {
+      setLocationMessage("Location is not available on this device.");
+      return;
+    }
 
-  function handleMapPointerMove(event: PointerEvent<SVGSVGElement>) {
-    if (!dragRef.current || !mapRef.current) return;
-    const rect = mapRef.current.getBoundingClientRect();
-    const scale = viewBox.w / rect.width;
-    const drag = dragRef.current;
-    setViewBox(
-      clampViewBox({
-        ...viewBox,
-        x: drag.viewX - (event.clientX - drag.x) * scale,
-        y: drag.viewY - (event.clientY - drag.y) * scale,
-      }),
-    );
-  }
-
-  function handleMapDoubleClick(event: ReactMouseEvent<SVGSVGElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    zoom(
-      0.65,
-      viewBox.x + ((event.clientX - rect.left) / rect.width) * viewBox.w,
-      viewBox.y + ((event.clientY - rect.top) / rect.height) * viewBox.h,
+    setLocationMessage("Finding your location…");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const location = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
+        setUserLocation(location);
+        setLocationMessage("Showing mapped places within 50 km.");
+        mapInstance?.flyTo(
+          [location.latitude, location.longitude],
+          11,
+        );
+      },
+      () => {
+        setLocationMessage(
+          "Location permission was unavailable. Enable GPS and try again.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
     );
   }
 
@@ -656,22 +779,13 @@ export default function DashboardPage() {
     setSelection({ type, index });
     setLayers((current) => ({ ...current, [type]: true }));
     if (focusMap) {
-      const item =
-        type === "req"
-          ? requests[index]
-          : type === "sh"
-            ? shelters[index]
-            : depots[index];
-      if (item.x === undefined || item.y === undefined) return;
-      const w = Math.min(viewBox.w, 560);
-      setViewBox(
-        clampViewBox({
-          x: item.x - w / 2,
-          y: item.y - (w * 520) / 900 / 2 - 10,
-          w,
-          h: (w * 520) / 900,
-        }),
-      );
+      const item = type === "req" ? requests[index] : shelters[index];
+      if (hasValidCoordinates(item)) {
+        mapInstance?.flyTo(
+          [item.latitude, item.longitude],
+          Math.max(mapInstance.getZoom(), 12),
+        );
+      }
       mapCardRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   }
@@ -686,17 +800,18 @@ export default function DashboardPage() {
     setLayers((current) => ({ ...current, [layer]: !current[layer] }));
   }
 
-  const requestCount = layers.req ? visibleRequests.length : 0;
-  const shelterCount = layers.sh ? matchingShelters.length : 0;
-  const depotCount = layers.res ? matchingDepots.length : 0;
+  const totalRequestPages = Math.max(1, Math.ceil(totalRequestCount / 100));
   const countText = [
-    layers.req ? `${requestCount} requests` : "",
-    layers.sh ? `${shelterCount} shelters` : "",
-    layers.res ? `${depotCount} resources` : "",
+    accountRole !== "Citizen" && layers.req
+      ? `${mapRequests.length} mapped requests (page ${requestPage} of ${totalRequestPages})`
+      : "",
+    layers.sh ? `${mapShelterPoints.length} mapped shelters` : "",
+    accountRole === "Citizen" && layers.res
+      ? `${mapResourcePoints.length} mapped resources`
+      : "",
   ]
     .filter(Boolean)
     .join(" · ");
-  const totalRequestPages = Math.max(1, Math.ceil(totalRequestCount / 100));
 
   if (isLoadingRequests || isRedirecting) {
     return (
@@ -725,7 +840,9 @@ export default function DashboardPage() {
           <nav className={styles.tabs} aria-label="Main">
             <Link className={styles.activeTab} href="/dashboard">Dashboard</Link>
             <Link href="#queue">Requests</Link>
-            <Link href="#map-card">Shelters &amp; Resources</Link>
+            {requestStaffRoles.has(accountRole) && <Link href="#map-card">Staff Map</Link>}
+            {accountRole === "Citizen" && <Link href="#map-card">Nearby Map</Link>}
+            <Link href="#shelters-resources">Shelters &amp; Resources</Link>
             <Link href="/portal">Account</Link>
           </nav>
           <label className={styles.search}>
@@ -789,99 +906,230 @@ export default function DashboardPage() {
           </article>
         </section>
 
-        <section className={styles.card} id="map-card" aria-labelledby="map-title" ref={mapCardRef}>
-          <div className={styles.mapHeading}>
-            <h2 id="map-title">Live Aid Map</h2>
-            <div className={styles.chips} role="group" aria-label="Map layers">
-              {([["req", "Requests"], ["sh", "Shelters"], ["res", "Resources"]] as const).map(([layer, label]) => (
-                <button className={styles.chip} key={layer} type="button" aria-pressed={layers[layer]} onClick={() => toggleLayer(layer)}><span />{label}</button>
-              ))}
-            </div>
-            <select className={styles.select} aria-label="Filter requests by urgency" value={urgency} onChange={(event) => setUrgency(event.target.value)}>
-              <option value="all">All urgency levels</option><option>Critical</option><option>High</option><option>Medium</option><option>Low</option><option value="unassessed">Not assessed</option>
-            </select>
-            <span className={styles.count} aria-live="polite">
-              {isLoadingRequests
-                ? accountRole === "Citizen" ? "Loading your requests…" : "Loading requests…"
-                : requestLoadError
-                  ? "Requests unavailable"
-                  : countText}
-            </span>
-          </div>
-          <div className={styles.mapBox}>
-            <svg
-              ref={mapRef}
-              className={`${styles.map} ${isDragging ? styles.dragging : ""}`}
-              viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
-              role="group"
-              aria-label="Schematic map of requests, shelters and resource depots"
-              onPointerDown={handleMapPointerDown}
-              onPointerMove={handleMapPointerMove}
-              onPointerUp={() => { dragRef.current = null; setIsDragging(false); }}
-              onPointerCancel={() => { dragRef.current = null; setIsDragging(false); }}
-              onDoubleClick={handleMapDoubleClick}
-            >
-              <rect x="-200" y="-200" width="1400" height="960" fill="#EAF6EE" />
-              <g fill="#D3EDDC"><path d="M560 20c60-20 140 0 170 40s-20 70-90 70-120-40-80-110z" /><path d="M40 440c60-30 150-20 200 20s0 70-80 70-150-30-120-90z" /><path d="M690 410c50-30 130-20 150 30s-30 80-100 70-90-60-50-100z" /></g>
-              <ellipse cx="140" cy="86" rx="100" ry="52" fill="#CFE8F0" />
-              <path d="M-40 405C90 340 200 400 310 345S520 285 630 340 800 310 960 335" fill="none" stroke="#BFE3EE" strokeWidth="30" strokeLinecap="round" />
-              <path d="M-40 405C90 340 200 400 310 345S520 285 630 340 800 310 960 335" fill="none" stroke="#D9F0F6" strokeWidth="12" strokeLinecap="round" />
-              <g fill="none" stroke="#fff" strokeWidth="9" strokeLinecap="round"><path d="M0 230C160 250 300 190 450 250S740 210 900 250" /><path d="M450 -10C430 120 470 190 450 250S430 420 470 540" /><path d="M180 -10C200 100 160 200 220 300" /><path d="M700 -10C720 100 650 180 690 300S760 440 740 540" /><path d="M0 120C120 140 240 100 330 130" /></g>
-              <g fill="none" stroke="#fff" strokeWidth="3" opacity=".9"><path d="M380 200h140M380 250h140M380 300h140M400 180v140M450 180v140M500 180v140M560 90l120 60M590 60l120 60" /></g>
-              <g fontFamily="Inter,sans-serif" fontSize="12" fontWeight="700" letterSpacing="2" fill="#6B8F7B" opacity=".85"><text x="395" y="172">OLD TOWN</text><text x="205" y="372">RIVERSIDE</text><text x="590" y="88">TEMPLE HILL</text><text x="740" y="440">HARBOUR</text><text x="70" y="64">LAKESIDE</text></g>
-              {layers.res && <g>{matchingDepots.slice(0, 20).map((depot) => {
-                const index = depots.indexOf(depot);
-                const color = "#246BCE";
-                const selected = selection?.type === "res" && selection.index === index;
-                return <g className="mapMarker" key={depot.id} transform={`translate(${depot.x} ${depot.y})`} role="button" tabIndex={0} aria-label={`${depot.n}, ${depot.quantityAvailable} available`} onClick={() => selectItem("res", index)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectItem("res", index); } }}>
-                  {selected && <circle className={styles.pulse} r="20" fill={color} opacity=".5" />}
-                  <rect x="-14" y="-14" width="28" height="28" rx="7" transform="rotate(45)" fill={color} stroke="#fff" strokeWidth={selected ? 4 : 3} />
-                  <path d="M-6 -2h12v9h-12zM-6 -2l3-4h6l3 4" fill="none" stroke="#fff" strokeWidth="2" strokeLinejoin="round" />
-                  <title>{depot.n}</title>
-                </g>;
-              })}</g>}
-              {layers.sh && <g>{matchingShelters.map((shelter) => {
-                const index = shelters.indexOf(shelter);
-                if (shelter.x === undefined || shelter.y === undefined) return null;
-                const color = shelter.p >= 80 ? "#D93025" : "#1B6B47";
-                const selected = selection?.type === "sh" && selection.index === index;
-                return <g className="mapMarker" key={shelter.id} transform={`translate(${shelter.x} ${shelter.y})`} role="button" tabIndex={0} aria-label={`${shelter.n}, ${shelter.p}% full`} onClick={() => selectItem("sh", index)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectItem("sh", index); } }}>
-                  {selected && <circle className={styles.pulse} r="20" fill={color} opacity=".5" />}
-                  <rect x="-16" y="-16" width="32" height="32" rx="10" fill={color} stroke="#fff" strokeWidth={selected ? 4 : 3} />
-                  <path d="M-8 1L0-7L8 1V9H-8Z" fill="#fff" /><rect x="-2" y="3" width="4" height="6" fill={color} />
-                  <rect x="-20" y="19" width="40" height="17" rx="8.5" fill="#fff" stroke={color} strokeWidth="2" /><text y="31.5" textAnchor="middle" fontFamily="Inter,sans-serif" fontSize="10.5" fontWeight="800" fill={color}>{shelter.p}%</text>
-                  <title>{shelter.n}</title>
-                </g>;
-              })}</g>}
-              {layers.req && <g>{visibleRequests.map(({ request, index }) => {
-                if (request.x === undefined || request.y === undefined) return null;
-                const color = request.lvl ? urgencyColors[request.lvl] : "#718096";
-                const selected = selection?.type === "req" && selection.index === index;
-                return <g className="mapMarker" key={request.id} transform={`translate(${request.x} ${request.y})`} role="button" tabIndex={0} aria-label={`Request ${request.id}, ${request.cat}, ${request.lvl ?? "urgency not assessed"}`} onClick={() => selectItem("req", index)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectItem("req", index); } }}>
-                  {selected && <circle className={styles.pulse} r="14" fill={color} opacity=".5" />}
-                  <ellipse cy="1" rx="8" ry="3" fill="#000" opacity=".18" />
-                  <path d="M0 0C-5-10-16-18-16-30a16 16 0 0 1 32 0C16-18 5-10 0 0z" fill={color} stroke="#fff" strokeWidth={selected ? 4 : 2.5} />
-                  <circle cy="-30" r="6" fill="#fff" /><title>{`Request ${request.id}`}</title>
-                </g>;
-              })}</g>}
-            </svg>
-            <div className={styles.zoom}>
-              <button type="button" aria-label="Zoom in" onClick={() => zoom(0.7)}>+</button>
-              <button type="button" aria-label="Zoom out" onClick={() => zoom(1.4)}>−</button>
-              <button type="button" aria-label="Reset map view" onClick={() => setViewBox(initialViewBox)}>↻</button>
-            </div>
-            <div className={styles.mapKey}><span><i className={styles.keyCritical} />Critical</span><span><i className={styles.keyHigh} />High</span><span><i className={styles.keyMedium} />Medium</span><span><i className={styles.keyLow} />Low</span><span><i className={styles.keyShelter} />Shelter</span><span><i className={styles.keyDepot} />Resource depot</span></div>
-            {selection && (
-              <div className={styles.info} role="dialog" aria-label="Map item details">
-                <button className={styles.closeInfo} type="button" aria-label="Close details" onClick={() => setSelection(null)}>×</button>
-                {selectedRequest && <><h3>Request {selectedRequest.id} · {selectedRequest.cat}</h3><p>{selectedRequest.address || "Address not provided"}</p><p>{selectedRequest.description}</p><dl><div><dt>Urgency</dt><dd>{selectedRequest.lvl ? `${selectedRequest.lvl}${selectedRequest.sc === null ? "" : ` · ${selectedRequest.sc}%`}` : "Not assessed"}</dd></div><div><dt>Status</dt><dd><span className={`${styles.pill} ${styles[statusClass[selectedRequest.st]]}`}>{displayStatus(selectedRequest.st)}</span></dd></div><div><dt>Submitted</dt><dd>{new Date(selectedRequest.createdAt).toLocaleDateString()}</dd></div></dl></>}
-                {selectedShelter && <><h3>{selectedShelter.n}</h3><p>Shelter</p><dl><div><dt>Occupancy</dt><dd><span className={`${styles.pill} ${selectedShelter.p >= 80 ? styles.high : styles.low}`}>{selectedShelter.p}% full</span></dd></div><div><dt>Beds used</dt><dd>{selectedShelter.u} of {selectedShelter.c}</dd></div></dl><div className={`${styles.bar} ${selectedShelter.p >= 80 ? styles.redBar : ""}`}><i style={{ width: `${selectedShelter.p}%` }} /></div></>}
-                {selectedDepot && <><h3>{selectedDepot.n}</h3><p>Resource inventory</p><dl><div><dt>Category</dt><dd>{selectedDepot.item}</dd></div><div><dt>Available</dt><dd>{selectedDepot.quantityAvailable}</dd></div>{selectedDepot.description && <div><dt>Description</dt><dd>{selectedDepot.description}</dd></div>}</dl></>}
+        {(accountRole === "Citizen" || requestStaffRoles.has(accountRole)) && (
+          <section
+            className={styles.card}
+            id="map-card"
+            aria-labelledby="map-title"
+            ref={mapCardRef}
+          >
+            <div className={styles.mapHeading}>
+              <h2 id="map-title">
+                {accountRole === "Citizen"
+                  ? "Nearby Shelters & Resources"
+                  : "Staff Aid Map"}
+              </h2>
+              <div className={styles.chips} role="group" aria-label="Map layers">
+                {(
+                  accountRole === "Citizen"
+                    ? [
+                        ["sh", "Shelters"],
+                        ["res", "Resources"],
+                      ] as const
+                    : [
+                        ["req", "Requests"],
+                        ["sh", "Shelters"],
+                      ] as const
+                ).map(([layer, label]) => (
+                  <button
+                    className={styles.chip}
+                    key={layer}
+                    type="button"
+                    aria-pressed={layers[layer]}
+                    onClick={() => toggleLayer(layer)}
+                  >
+                    <span />
+                    {label}
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
-          <p className={styles.note}>Request and shelter markers use submitted coordinates where available. Shelters without coordinates appear in the list only; resource markers are schematic and limited to 20 on the map.</p>
-        </section>
+              {accountRole === "Citizen" ? (
+                <button
+                  className={styles.button}
+                  type="button"
+                  onClick={findNearbyPlaces}
+                >
+                  Use my location
+                </button>
+              ) : (
+                <select
+                  className={styles.select}
+                  aria-label="Filter requests by urgency"
+                  value={urgency}
+                  onChange={(event) => setUrgency(event.target.value)}
+                >
+                  <option value="all">All urgency levels</option>
+                  <option>Critical</option>
+                  <option>High</option>
+                  <option>Medium</option>
+                  <option>Low</option>
+                  <option value="unassessed">Not assessed</option>
+                </select>
+              )}
+              <span className={styles.count} aria-live="polite">
+                {accountRole === "Citizen"
+                  ? locationMessage ||
+                    `${mapShelterPoints.length} shelters · ${mapResourcePoints.length} resources`
+                  : requestLoadError
+                  ? "Requests unavailable"
+                  : countText || "No map layers selected"}
+              </span>
+            </div>
+            <div className={styles.mapBox}>
+              <LiveAidMap
+                mode={accountRole === "Citizen" ? "citizen" : "staff"}
+                requests={mapRequests}
+                shelters={mapShelterPoints}
+                resources={mapResourcePoints}
+                selection={selection}
+                onSelect={(type, index) => selectItem(type, index)}
+                onMapReady={setMapInstance}
+              />
+              {!requestLoadError &&
+                mapRequests.length === 0 &&
+                mapShelterPoints.length === 0 &&
+                mapResourcePoints.length === 0 && (
+                <div className={styles.mapEmpty} role="status">
+                  {accountRole === "Citizen"
+                    ? "No nearby mapped shelters or resources are available."
+                    : "No visible requests or shelters have saved map coordinates."}
+                </div>
+              )}
+              {selection && (
+                <div className={styles.info} role="dialog" aria-label="Map item details">
+                  <button
+                    className={styles.closeInfo}
+                    type="button"
+                    aria-label="Close details"
+                    onClick={() => setSelection(null)}
+                  >
+                    ×
+                  </button>
+                  {selectedRequest && (
+                    <>
+                      <h3>
+                        Request {selectedRequest.id} · {selectedRequest.cat}
+                      </h3>
+                      <p>{selectedRequest.address || "Address not provided"}</p>
+                      <p>{selectedRequest.description}</p>
+                      <dl>
+                        <div>
+                          <dt>Urgency</dt>
+                          <dd>
+                            {selectedRequest.lvl
+                              ? `${selectedRequest.lvl}${
+                                  selectedRequest.sc === null
+                                    ? ""
+                                    : ` · ${selectedRequest.sc}%`
+                                }`
+                              : "Not assessed"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Status</dt>
+                          <dd>
+                            <span
+                              className={`${styles.pill} ${styles[statusClass[selectedRequest.st]]}`}
+                            >
+                              {displayStatus(selectedRequest.st)}
+                            </span>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Submitted</dt>
+                          <dd>
+                            {new Date(selectedRequest.createdAt).toLocaleDateString()}
+                          </dd>
+                        </div>
+                      </dl>
+                    </>
+                  )}
+                  {selectedShelter && (
+                    <>
+                      <h3>{selectedShelter.n}</h3>
+                      <p>Shelter</p>
+                      <dl>
+                        <div>
+                          <dt>Occupancy</dt>
+                          <dd>
+                            <span
+                              className={`${styles.pill} ${
+                                selectedShelter.p >= 80
+                                  ? styles.high
+                                  : styles.low
+                              }`}
+                            >
+                              {selectedShelter.p}% full
+                            </span>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Beds used</dt>
+                          <dd>
+                            {selectedShelter.u} of {selectedShelter.c}
+                          </dd>
+                        </div>
+                      </dl>
+                      <div
+                        className={`${styles.bar} ${
+                          selectedShelter.p >= 80 ? styles.redBar : ""
+                        }`}
+                      >
+                        <i style={{ width: `${selectedShelter.p}%` }} />
+                      </div>
+                    </>
+                  )}
+                  {selectedDepot && (
+                    <>
+                      <h3>{selectedDepot.n}</h3>
+                      <p>{selectedDepot.item} resource</p>
+                      <dl>
+                        <div>
+                          <dt>Available</dt>
+                          <dd>{selectedDepot.quantityAvailable}</dd>
+                        </div>
+                        {selectedDepot.description && (
+                          <div>
+                            <dt>Description</dt>
+                            <dd>{selectedDepot.description}</dd>
+                          </div>
+                        )}
+                      </dl>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className={styles.mapKey}>
+              {accountRole === "Citizen" ? (
+                <>
+                  <span>
+                    <i className={styles.keyShelter} />
+                    Shelter
+                  </span>
+                  <span>
+                    <i className={styles.keyResource} />
+                    Resource
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span><i className={styles.keyCritical} />Critical</span>
+                  <span><i className={styles.keyHigh} />High</span>
+                  <span><i className={styles.keyMedium} />Medium</span>
+                  <span><i className={styles.keyLow} />Low</span>
+                  <span><i className={styles.keyUnassessed} />Not assessed</span>
+                  <span><i className={styles.keyShelter} />Shelter</span>
+                </>
+              )}
+            </div>
+            <p className={styles.note}>
+              {accountRole === "Citizen"
+                ? "Tap “Use my location” to show mapped shelters and resources within 50 km. Your location is used only by this browser and is not saved."
+                : "Exact request locations are visible only to authorized staff. Shelters and requests without saved coordinates are not plotted."}
+            </p>
+          </section>
+        )}
 
         <div className={styles.columns}>
           <section className={styles.card} id="queue" aria-labelledby="queue-title">
@@ -907,7 +1155,7 @@ export default function DashboardPage() {
                     <th>Description</th>
                     <th>Urgency</th>
                     <th>Status</th>
-                    <th>Submitted</th>
+                    <th>{requestStaffRoles.has(accountRole) ? "Actions" : "Submitted"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -948,7 +1196,13 @@ export default function DashboardPage() {
                                 className={styles.requestId}
                                 type="button"
                                 aria-label={`Show request ${request.id} on map`}
-                                onClick={() => selectItem("req", index, true)}
+                                onClick={() =>
+                                  selectItem(
+                                    "req",
+                                    requests.findIndex((item) => item.id === request.id),
+                                    true,
+                                  )
+                                }
                               >
                                 #{request.id}
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -982,13 +1236,112 @@ export default function DashboardPage() {
                                 {displayStatus(request.st)}
                               </span>
                             </td>
-                            <td>{new Date(request.createdAt).toLocaleDateString()}</td>
+                            <td>
+                              {requestStaffRoles.has(accountRole) ? (
+                                <div className={styles.rowActions}>
+                                  {request.st === "Submitted" && (
+                                    <button
+                                      className={`${styles.button} ${styles.primaryButton}`}
+                                      type="button"
+                                      disabled={updatingRequestId === request.id}
+                                      onClick={() =>
+                                        void updateRequest(request, "status", {
+                                          status: "PendingReview",
+                                        })
+                                      }
+                                    >
+                                      Send to review
+                                    </button>
+                                  )}
+                                  {request.st === "PendingReview" && (
+                                    <>
+                                      <button
+                                        className={`${styles.button} ${styles.primaryButton}`}
+                                        type="button"
+                                        disabled={updatingRequestId === request.id}
+                                        onClick={() =>
+                                          void updateRequest(request, "review", {
+                                            action: "Approved",
+                                          })
+                                        }
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        className={styles.button}
+                                        type="button"
+                                        disabled={updatingRequestId === request.id}
+                                        onClick={() =>
+                                          void updateRequest(request, "review", {
+                                            action: "Deferred",
+                                          })
+                                        }
+                                      >
+                                        Defer
+                                      </button>
+                                      <button
+                                        className={styles.button}
+                                        type="button"
+                                        disabled={updatingRequestId === request.id}
+                                        onClick={() =>
+                                          void updateRequest(request, "review", {
+                                            action: "Rejected",
+                                          })
+                                        }
+                                      >
+                                        Reject
+                                      </button>
+                                    </>
+                                  )}
+                                  {request.st === "Approved" && (
+                                    <button
+                                      className={`${styles.button} ${styles.primaryButton}`}
+                                      type="button"
+                                      disabled={updatingRequestId === request.id}
+                                      onClick={() =>
+                                        void updateRequest(request, "status", {
+                                          status: "Assigned",
+                                        })
+                                      }
+                                    >
+                                      Assign
+                                    </button>
+                                  )}
+                                  {request.st === "Assigned" && (
+                                    <button
+                                      className={`${styles.button} ${styles.primaryButton}`}
+                                      type="button"
+                                      disabled={updatingRequestId === request.id}
+                                      onClick={() =>
+                                        void updateRequest(request, "status", {
+                                          status: "Fulfilled",
+                                        })
+                                      }
+                                    >
+                                      Mark fulfilled
+                                    </button>
+                                  )}
+                                  {updatingRequestId === request.id && (
+                                    <span className={styles.note} role="status">
+                                      Updating…
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                new Date(request.createdAt).toLocaleDateString()
+                              )}
+                            </td>
                           </tr>
                         );
                       })}
                 </tbody>
               </table>
             </div>
+            {requestActionError && (
+              <p className={styles.note} role="alert">
+                {requestActionError}
+              </p>
+            )}
             <div className={styles.row}>
               <span>
                 {totalRequestCount === 0
@@ -1020,7 +1373,11 @@ export default function DashboardPage() {
             </div>
           </section>
           <div className={styles.sideColumn}>
-            <section className={styles.card} aria-labelledby="shelters-title">
+            <section
+              className={styles.card}
+              id="shelters-resources"
+              aria-labelledby="shelters-title"
+            >
               <div className={styles.cardHeading}><h2 id="shelters-title">Shelters &amp; Resources</h2></div>
               {isLoadingShelters ? (
                 <p role="status">Loading shelters…</p>
@@ -1029,7 +1386,43 @@ export default function DashboardPage() {
               ) : shelters.length === 0 ? (
                 <p>No shelters are available.</p>
               ) : (
-                <div>{shelters.slice(0, 3).map((shelter, index) => <button className={styles.shelterBar} key={shelter.id} type="button" aria-label={`Show ${shelter.n} on map`} onClick={() => selectItem("sh", index, true)}><span className={styles.shelterTop}><b>{shelter.n}</b><strong className={shelter.p >= 80 ? styles.redText : ""}>{shelter.p}% full</strong></span><span className={`${styles.bar} ${shelter.p >= 80 ? styles.redBar : ""}`}><i style={{ width: `${shelter.p}%` }} /></span></button>)}</div>
+                <div>
+                  {shelters.slice(0, 3).map((shelter, index) => {
+                    const details = (
+                      <>
+                        <span className={styles.shelterTop}>
+                          <b>{shelter.n}</b>
+                          <strong className={shelter.p >= 80 ? styles.redText : ""}>
+                            {shelter.p}% full
+                          </strong>
+                        </span>
+                        <span
+                          className={`${styles.bar} ${
+                            shelter.p >= 80 ? styles.redBar : ""
+                          }`}
+                        >
+                          <i style={{ width: `${shelter.p}%` }} />
+                        </span>
+                      </>
+                    );
+
+                    return requestStaffRoles.has(accountRole) ? (
+                      <button
+                        className={styles.shelterBar}
+                        key={shelter.id}
+                        type="button"
+                        aria-label={`Show ${shelter.n} on map`}
+                        onClick={() => selectItem("sh", index, true)}
+                      >
+                        {details}
+                      </button>
+                    ) : (
+                      <div className={styles.shelterBar} key={shelter.id}>
+                        {details}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
               <div className={styles.resourceList}>
                 {isLoadingResources ? (
