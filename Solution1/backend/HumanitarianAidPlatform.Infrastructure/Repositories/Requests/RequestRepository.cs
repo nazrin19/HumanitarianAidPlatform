@@ -25,6 +25,9 @@ public class RequestRepository : IRequestRepository
     public async Task<AssistanceRequest?> GetByIdAsync(Guid id) =>
         await _db.AssistanceRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id);
 
+    public async Task<AssistanceRequest?> GetTrackedByIdAsync(Guid id) =>
+        await _db.AssistanceRequests.FirstOrDefaultAsync(r => r.Id == id);
+
     public async Task<IReadOnlyList<RequestStatusHistory>> GetHistoryAsync(Guid requestId) =>
         await _db.RequestStatusHistories
             .AsNoTracking()
@@ -38,6 +41,25 @@ public class RequestRepository : IRequestRepository
         var request = await _db.AssistanceRequests.FirstAsync(r => r.Id == requestId);
         request.Status = history.ToStatus;
         _db.AiRecommendations.Add(recommendation);
+        _db.RequestStatusHistories.Add(history);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task SaveReviewAsync(
+        RequestStatusHistory history,
+        AuditLog auditLog)
+    {
+        var request = await _db.AssistanceRequests.FirstAsync(r => r.Id == history.AssistanceRequestId);
+        request.Status = history.ToStatus;
+        _db.RequestStatusHistories.Add(history);
+        _db.AuditLogs.Add(auditLog);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task SaveStatusChangeAsync(RequestStatusHistory history)
+    {
+        var request = await _db.AssistanceRequests.FirstAsync(r => r.Id == history.AssistanceRequestId);
+        request.Status = history.ToStatus;
         _db.RequestStatusHistories.Add(history);
         await _db.SaveChangesAsync();
     }

@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import Image from "next/image";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AUTH_SESSION_LOADING,
@@ -8,6 +9,7 @@ import {
   useSessionRole,
   useSessionToken,
 } from "../lib/auth-session";
+import styles from "./page.module.css";
 
 type PendingApplication = {
   id: string;
@@ -20,9 +22,8 @@ type PendingApplication = {
   createdAt: string;
 };
 
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001"
-).replace(/\/+$/, "");
+const API_BASE_URL =
+  (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001").replace(/\/+$/, "");
 
 const STAFF_ROLES = [
   "Coordinator",
@@ -32,7 +33,7 @@ const STAFF_ROLES = [
   "VolunteerCoordinator",
   "DonorOfficer",
   "PartnerOfficer",
-];
+] as const;
 
 function getErrorMessage(body: unknown, fallback: string) {
   if (body && typeof body === "object") {
@@ -64,9 +65,7 @@ async function loadPendingApplications(token: string): Promise<PendingApplicatio
   });
   const body: unknown = await response.json().catch(() => undefined);
   if (!response.ok) {
-    throw new Error(
-      getErrorMessage(body, `Unable to load applications (${response.status}).`),
-    );
+    throw new Error(getErrorMessage(body, `Unable to load applications (${response.status}).`));
   }
   if (!Array.isArray(body) || !body.every(isPendingApplication)) {
     throw new Error("The server returned an invalid applications response.");
@@ -74,11 +73,26 @@ async function loadPendingApplications(token: string): Promise<PendingApplicatio
   return body;
 }
 
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+}
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Unknown" : date.toLocaleDateString();
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const token = useSessionToken();
   const accountRole = useSessionRole();
   const [applications, setApplications] = useState<PendingApplication[]>([]);
+  const [createdStaff, setCreatedStaff] = useState<PendingApplication[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busyId, setBusyId] = useState("");
@@ -86,8 +100,10 @@ export default function AdminPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState(STAFF_ROLES[0]);
+  const [role, setRole] = useState<(typeof STAFF_ROLES)[number]>(STAFF_ROLES[0]);
   const [isCreating, setIsCreating] = useState(false);
+  const [query, setQuery] = useState("");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const refresh = useCallback(async (accessToken: string) => {
     setError("");
@@ -95,24 +111,19 @@ export default function AdminPage() {
     try {
       setApplications(await loadPendingApplications(accessToken));
     } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Unable to load applications.",
-      );
+      setError(loadError instanceof Error ? loadError.message : "Unable to load applications.");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (token === AUTH_SESSION_LOADING || accountRole === AUTH_SESSION_LOADING) {
-      return;
-    }
+    if (token === AUTH_SESSION_LOADING || accountRole === AUTH_SESSION_LOADING) return;
     if (!token || accountRole !== "Admin") {
       router.replace(accountRole ? "/portal" : "/login");
       return;
     }
+
     let active = true;
     loadPendingApplications(token)
       .then((pendingApplications) => {
@@ -123,11 +134,7 @@ export default function AdminPage() {
       })
       .catch((loadError: unknown) => {
         if (active) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "Unable to load applications.",
-          );
+          setError(loadError instanceof Error ? loadError.message : "Unable to load applications.");
         }
       })
       .finally(() => {
@@ -138,6 +145,16 @@ export default function AdminPage() {
       active = false;
     };
   }, [accountRole, router, token]);
+
+  const filteredApplications = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return applications;
+    return applications.filter((application) =>
+      `${application.fullName} ${application.email} ${application.accountType}`
+        .toLowerCase()
+        .includes(normalized),
+    );
+  }, [applications, query]);
 
   async function decide(application: PendingApplication, decision: "approve" | "reject") {
     setBusyId(application.id);
@@ -153,22 +170,12 @@ export default function AdminPage() {
       );
       if (!response.ok) {
         const body: unknown = await response.json().catch(() => undefined);
-        throw new Error(
-          getErrorMessage(body, `Unable to ${decision} this application (${response.status}).`),
-        );
+        throw new Error(getErrorMessage(body, `Unable to ${decision} this application (${response.status}).`));
       }
-      setNotice(
-        `${application.fullName}'s application was ${
-          decision === "approve" ? "approved" : "rejected"
-        }.`,
-      );
+      setNotice(`${application.fullName}'s application was ${decision === "approve" ? "approved" : "rejected"}.`);
       await refresh(token);
     } catch (actionError) {
-      setError(
-        actionError instanceof Error
-          ? actionError.message
-          : `Unable to ${decision} this application.`,
-      );
+      setError(actionError instanceof Error ? actionError.message : `Unable to ${decision} this application.`);
     } finally {
       setBusyId("");
     }
@@ -191,30 +198,33 @@ export default function AdminPage() {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          fullName: fullName.trim(),
-          email: email.trim(),
-          password,
-          role,
-        }),
+        body: JSON.stringify({ fullName: fullName.trim(), email: email.trim(), password, role }),
       });
       const body: unknown = await response.json().catch(() => undefined);
       if (!response.ok) {
-        throw new Error(
-          getErrorMessage(body, `Unable to create staff account (${response.status}).`),
-        );
+        throw new Error(getErrorMessage(body, `Unable to create staff account (${response.status}).`));
       }
 
+      const created = body && typeof body === "object"
+        ? body as Record<string, unknown>
+        : {};
+      setCreatedStaff((current) =>
+        [{
+          id: typeof created.id === "string" ? created.id : `${email}-${Date.now()}`,
+          fullName: typeof created.fullName === "string" ? created.fullName : fullName.trim(),
+          email: typeof created.email === "string" ? created.email : email.trim(),
+          accountType: typeof created.role === "string" ? created.role : role,
+          phone: null,
+          skills: null,
+          donorType: null,
+          createdAt: new Date().toISOString(),
+        }, ...current].slice(0, 5));
       setNotice(`Staff account created for ${email.trim()}.`);
       setFullName("");
       setEmail("");
       setPassword("");
     } catch (createError) {
-      setError(
-        createError instanceof Error
-          ? createError.message
-          : "Unable to create staff account.",
-      );
+      setError(createError instanceof Error ? createError.message : "Unable to create staff account.");
     } finally {
       setIsCreating(false);
     }
@@ -226,129 +236,127 @@ export default function AdminPage() {
   }
 
   if (token === AUTH_SESSION_LOADING || accountRole === AUTH_SESSION_LOADING) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-700" role="status">
-        Checking administrator access…
-      </main>
-    );
+    return <main className={styles.statusPage} role="status">Checking administrator access…</main>;
   }
-
   if (!token || accountRole !== "Admin") {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-700" role="status">
-        Redirecting…
-      </main>
-    );
+    return <main className={styles.statusPage} role="status">Redirecting…</main>;
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900 md:px-8">
-      <div className="mx-auto max-w-6xl">
-        <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-wide text-emerald-800">
-              Humanitarian Aid Platform
-            </p>
-            <h1 className="mt-2 text-3xl font-bold">Administrator workspace</h1>
-          </div>
+    <div className={styles.page}>
+      {mobileMenuOpen && (
+        <button
+          className={styles.mobileOverlay}
+          type="button"
+          aria-label="Close admin menu"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+      <aside className={`${styles.sidebar} ${mobileMenuOpen ? styles.sidebarOpen : ""}`}>
+        <button className={styles.brand} type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+          <Image src="/humanitarian-aid-platform-logo.svg" alt="" width={38} height={38} />
+          <span><strong>Humanitarian</strong><small>Aid Platform</small></span>
+        </button>
+        <nav className={styles.sideNav} aria-label="Admin navigation">
+          <a className={styles.activeNav} href="#top" onClick={() => setMobileMenuOpen(false)}><span>⌂</span>Overview</a>
+          <a href="#applications" onClick={() => setMobileMenuOpen(false)}><span>✓</span>Applications
+            {applications.length > 0 && <b>{applications.length}</b>}
+          </a>
+          <a href="#staff" onClick={() => setMobileMenuOpen(false)}><span>♙</span>Create Staff</a>
+        </nav>
+        <div className={styles.sidebarFooter}>
+          <span>SA</span>
+          <div><strong>System Admin</strong><small>Administrator</small></div>
+        </div>
+      </aside>
+
+      <main className={styles.main} id="top">
+        <header className={styles.topbar}>
           <button
-            className="rounded-xl border border-slate-300 px-4 py-2 font-semibold hover:bg-white"
+            className={styles.menuButton}
             type="button"
-            onClick={signOut}
+            aria-label={mobileMenuOpen ? "Close admin menu" : "Open admin menu"}
+            aria-expanded={mobileMenuOpen}
+            onClick={() => setMobileMenuOpen((open) => !open)}
           >
-            Sign out
+            {mobileMenuOpen ? "×" : "☰"}
           </button>
+          <div><strong>Administrator workspace</strong><small>Humanitarian Aid Platform</small></div>
+          <button className={styles.signOut} type="button" onClick={signOut}>Sign out</button>
         </header>
 
-        {error && <p className="mb-4 rounded-xl bg-red-50 p-4 text-red-800" role="alert">{error}</p>}
-        {notice && <p className="mb-4 rounded-xl bg-emerald-50 p-4 text-emerald-900" role="status">{notice}</p>}
+        <div className={styles.content}>
+          <section className={styles.welcome}>
+            <div><p>Humanitarian Aid Platform · Admin</p><h1>Administrator workspace</h1><span>Review applications and manage platform staff access.</span></div>
+            <button className={styles.secondaryButton} type="button" disabled={isLoading} onClick={() => void refresh(token)}>↻ Refresh</button>
+          </section>
 
-        <section className="rounded-2xl bg-white p-6 shadow-sm" aria-labelledby="applications-heading">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-semibold" id="applications-heading">Pending applications</h2>
-              <p className="mt-1 text-sm text-slate-600">Approve or reject Volunteer and Donor applications.</p>
+          {error && <p className={styles.errorAlert} role="alert">{error}</p>}
+          {notice && <p className={styles.successAlert} role="status">{notice}</p>}
+
+          <section className={styles.metrics} aria-label="Administrator summary">
+            <article><span>✓</span><div><small>Pending applications</small><strong>{isLoading ? "…" : applications.length}</strong></div></article>
+            <article><span>♙</span><div><small>Recently created staff</small><strong>{createdStaff.length}</strong></div></article>
+            <article><span>◆</span><div><small>Administrator role</small><strong>Admin</strong></div></article>
+          </section>
+
+          <section className={styles.card} id="applications" aria-labelledby="applications-heading">
+            <div className={styles.cardHeader}>
+              <div><h2 id="applications-heading">Pending applications</h2><p>Volunteer and donor accounts awaiting administrator approval.</p></div>
+              <label className={styles.search}><span>⌕</span><input type="search" placeholder="Search applications" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
             </div>
-            <button
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold hover:bg-slate-50"
-              type="button"
-              disabled={!token || isLoading}
-              onClick={() => void refresh(token)}
-            >
-              Refresh
-            </button>
-          </div>
-          {isLoading ? (
-            <p role="status">Loading applications…</p>
-          ) : applications.length === 0 ? (
-            <p className="text-slate-600">There are no pending applications.</p>
-          ) : (
-            <ul className="divide-y divide-slate-200">
-              {applications.map((application) => (
-                <li className="flex flex-wrap items-center justify-between gap-4 py-5" key={application.id}>
-                  <div>
-                    <h3 className="font-semibold">{application.fullName} <span className="font-normal text-slate-600">({application.accountType})</span></h3>
-                    <p className="mt-1 text-sm text-slate-600">{application.email}{application.phone ? ` · ${application.phone}` : ""}</p>
-                    {application.skills && <p className="mt-1 text-sm text-slate-600">Skills: {application.skills}</p>}
-                    {application.donorType && <p className="mt-1 text-sm text-slate-600">Donor type: {application.donorType}</p>}
-                    <p className="mt-1 text-xs text-slate-500">Applied {new Date(application.createdAt).toLocaleString()}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      className="rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                      type="button"
-                      disabled={busyId === application.id}
-                      onClick={() => void decide(application, "approve")}
-                    >
-                      Approve
-                    </button>
-                    <button
-                      className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-800 disabled:opacity-50"
-                      type="button"
-                      disabled={busyId === application.id}
-                      onClick={() => void decide(application, "reject")}
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+            {isLoading ? (
+              <p className={styles.emptyState} role="status">Loading applications…</p>
+            ) : filteredApplications.length === 0 ? (
+              <p className={styles.emptyState}>No pending applications match this view.</p>
+            ) : (
+              <div className={styles.tableWrap}>
+                <table>
+                  <thead><tr><th>Applicant</th><th>Application</th><th>Profile</th><th>Applied</th><th>Action</th></tr></thead>
+                  <tbody>
+                    {filteredApplications.map((application) => (
+                      <tr key={application.id}>
+                        <td><div className={styles.applicant}><span>{initials(application.fullName)}</span><div><strong>{application.fullName}</strong><small>{application.email}</small>{application.phone && <small>{application.phone}</small>}</div></div></td>
+                        <td><span className={application.accountType === "Volunteer" ? styles.volunteerTag : styles.donorTag}>{application.accountType}</span></td>
+                        <td><div className={styles.profileDetail}>{application.skills && <span>{application.skills}</span>}{application.donorType && <span>{application.donorType}</span>}{!application.skills && !application.donorType && <span>Profile submitted</span>}</div></td>
+                        <td>{formatDate(application.createdAt)}</td>
+                        <td><div className={styles.rowActions}>
+                          <button className={styles.approveButton} type="button" disabled={busyId === application.id} onClick={() => void decide(application, "approve")}>Approve</button>
+                          <button className={styles.rejectButton} type="button" disabled={busyId === application.id} onClick={() => void decide(application, "reject")}>Reject</button>
+                        </div></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
 
-        <section className="mt-8 rounded-2xl bg-white p-6 shadow-sm" aria-labelledby="staff-heading">
-          <h2 className="text-xl font-semibold" id="staff-heading">Create staff account</h2>
-          <p className="mt-1 text-sm text-slate-600">Admin accounts are not created from this form.</p>
-          <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={createStaffAccount}>
-            <label className="grid gap-1 text-sm font-medium">
-              Full name
-              <input className="rounded-lg border border-slate-300 px-3 py-2" required maxLength={100} value={fullName} onChange={(event) => setFullName(event.target.value)} />
-            </label>
-            <label className="grid gap-1 text-sm font-medium">
-              Email
-              <input className="rounded-lg border border-slate-300 px-3 py-2" required type="email" maxLength={256} value={email} onChange={(event) => setEmail(event.target.value)} />
-            </label>
-            <label className="grid gap-1 text-sm font-medium">
-              Password (at least 12 characters)
-              <input className="rounded-lg border border-slate-300 px-3 py-2" required type="password" minLength={12} maxLength={100} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-            </label>
-            <label className="grid gap-1 text-sm font-medium">
-              Staff role
-              <select className="rounded-lg border border-slate-300 px-3 py-2" value={role} onChange={(event) => setRole(event.target.value)}>
-                {STAFF_ROLES.map((staffRole) => <option key={staffRole}>{staffRole}</option>)}
-              </select>
-            </label>
-            <button
-              className="w-fit rounded-xl bg-emerald-800 px-5 py-3 font-semibold text-white disabled:opacity-50 md:col-span-2"
-              type="submit"
-              disabled={isCreating || !token}
-            >
-              {isCreating ? "Creating…" : "Create staff account"}
-            </button>
-          </form>
-        </section>
-      </div>
-    </main>
+          <div className={styles.lowerGrid}>
+            <section className={styles.card} id="staff" aria-labelledby="staff-heading">
+              <div className={styles.cardHeader}><div><h2 id="staff-heading">Create staff account</h2><p>Create an active staff account with a platform role.</p></div></div>
+              <form className={styles.staffForm} onSubmit={createStaffAccount}>
+                <label><span>Full name</span><input required maxLength={100} placeholder="Staff member name" value={fullName} onChange={(event) => setFullName(event.target.value)} /></label>
+                <label><span>Work email</span><input required type="email" maxLength={256} placeholder="staff@example.com" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+                <label><span>Password</span><input required type="password" minLength={12} maxLength={100} placeholder="At least 12 characters" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+                <label><span>Staff role</span><select value={role} onChange={(event) => setRole(event.target.value as (typeof STAFF_ROLES)[number])}>{STAFF_ROLES.map((staffRole) => <option key={staffRole}>{staffRole}</option>)}</select></label>
+                <button className={styles.primaryButton} type="submit" disabled={isCreating}>{isCreating ? "Creating…" : "Create staff account"}</button>
+              </form>
+            </section>
+
+            <section className={styles.card} aria-labelledby="recent-heading">
+              <div className={styles.cardHeader}><div><h2 id="recent-heading">Recently created staff</h2><p>Accounts created during this browser session.</p></div></div>
+              {createdStaff.length === 0 ? <p className={styles.emptyState}>No staff accounts created in this session.</p> : (
+                <div className={styles.staffList}>
+                  {createdStaff.map((staff) => (
+                    <article key={staff.id}><span>{initials(staff.fullName)}</span><div><strong>{staff.fullName}</strong><small>{staff.email}</small></div><b>Active</b></article>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }

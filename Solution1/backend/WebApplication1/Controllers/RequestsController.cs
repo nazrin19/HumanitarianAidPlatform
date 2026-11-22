@@ -17,6 +17,12 @@ public class RequestsController : ControllerBase
         RoleNames.ShelterAdmin + "," +
         RoleNames.Admin;
 
+    private const string WorkflowRoles =
+        RoleNames.Coordinator + "," +
+        RoleNames.CaseManager + "," +
+        RoleNames.ResourceManager + "," +
+        RoleNames.Admin;
+
     private readonly IRequestService _service;
 
     public RequestsController(IRequestService service)
@@ -73,6 +79,52 @@ public class RequestsController : ControllerBase
 
         var request = await _service.GetByIdAsync(id, userId.Value, role);
         return request is null ? NotFound() : Ok(request);
+    }
+
+    [HttpPatch("{id:guid}/review")]
+    [Authorize(Roles = $"{RoleNames.Coordinator},{RoleNames.CaseManager},{RoleNames.Admin}")]
+    [ProducesResponseType(typeof(RequestResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<RequestResponseDto>> Review(Guid id, ReviewRequestDto dto)
+    {
+        var userId = User.GetUserId();
+        var role = User.GetRole();
+        if (userId is null || role is null)
+            return Unauthorized();
+
+        var result = await _service.ReviewAsync(id, userId.Value, role, dto);
+        return result.Code switch
+        {
+            ReviewResultCode.Success => Ok(result.Request),
+            ReviewResultCode.NotFound => NotFound(),
+            ReviewResultCode.ReasonRequired => BadRequest("A reason is required for rejected or deferred requests."),
+            ReviewResultCode.InvalidTransition => Conflict("The request cannot move to the requested status."),
+            _ => Forbid()
+        };
+    }
+
+    [HttpPatch("{id:guid}/status")]
+    [Authorize(Roles = WorkflowRoles)]
+    [ProducesResponseType(typeof(RequestResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<RequestResponseDto>> ChangeStatus(Guid id, ChangeRequestStatusDto dto)
+    {
+        var userId = User.GetUserId();
+        var role = User.GetRole();
+        if (userId is null || role is null)
+            return Unauthorized();
+
+        var result = await _service.ChangeStatusAsync(id, userId.Value, role, dto);
+        return result.Code switch
+        {
+            ReviewResultCode.Success => Ok(result.Request),
+            ReviewResultCode.NotFound => NotFound(),
+            ReviewResultCode.InvalidTransition => Conflict("The request cannot move to the requested status."),
+            _ => Forbid()
+        };
     }
 
     [HttpGet("{id:guid}/history")]

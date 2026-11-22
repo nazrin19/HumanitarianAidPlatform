@@ -1,11 +1,13 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using HumanitarianAidPlatform.Application.Notifications;
+using HumanitarianAidPlatform.Domain.Entities.Users;
 
 namespace HumanitarianAidPlatform.Api.Controllers
 {
     [ApiController]
     [Route("api/notifications")]
+    [Authorize(Roles = $"{RoleNames.Admin},{RoleNames.Coordinator},{RoleNames.CaseManager}")]
     public class NotificationsController : ControllerBase
     {
         private readonly INotificationService _notificationService;
@@ -22,11 +24,9 @@ namespace HumanitarianAidPlatform.Api.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         public async Task<IActionResult> SendEmail([FromQuery] string to, [FromQuery] string subject, [FromQuery] string body)
         {
-            var result = await _notificationService.SendEmailAsync(to, subject, body);
-            if (result)
-                return Ok(new { message = "Email sent successfully." });
-
-            return BadRequest(new { message = "Failed to send email." });
+            await Task.CompletedTask;
+            return StatusCode(StatusCodes.Status501NotImplemented,
+                new { message = "Real email delivery is not configured." });
         }
 
         [HttpPost("send-sms")]
@@ -36,11 +36,9 @@ namespace HumanitarianAidPlatform.Api.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         public async Task<IActionResult> SendSms([FromQuery] string phoneNumber, [FromQuery] string message)
         {
-            var result = await _notificationService.SendSmsAsync(phoneNumber, message);
-            if (result)
-                return Ok(new { message = "SMS sent successfully." });
-
-            return BadRequest(new { message = "Failed to send SMS." });
+            await Task.CompletedTask;
+            return StatusCode(StatusCodes.Status501NotImplemented,
+                new { message = "Real SMS delivery is not configured." });
         }
     }
 }

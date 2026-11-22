@@ -6,6 +6,16 @@ public interface IRequestService
 {
     Task<RequestResponseDto> SubmitAsync(Guid citizenId, CreateRequestDto dto);
     Task<RequestResponseDto?> GetByIdAsync(Guid id, Guid requesterId, string requesterRole);
+    Task<ReviewResult> ReviewAsync(
+        Guid id,
+        Guid reviewerId,
+        string reviewerRole,
+        ReviewRequestDto dto);
+    Task<ReviewResult> ChangeStatusAsync(
+        Guid id,
+        Guid userId,
+        string userRole,
+        ChangeRequestStatusDto dto);
     Task<IReadOnlyList<RequestStatusHistoryDto>?> GetHistoryAsync(Guid id, Guid requesterId, string requesterRole);
     Task<RecommendationDto?> GetRecommendationAsync(Guid id, string requesterRole);
     Task<PagedResult<RequestListItemDto>> GetMineAsync(
