@@ -25,6 +25,8 @@ public sealed class GeocodingController : ControllerBase
     [ProducesResponseType(typeof(GeocodingResult), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(GeocodingResult), 499)]
     [ProducesResponseType(typeof(GeocodingResult), StatusCodes.Status503ServiceUnavailable)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<GeocodingResult>> Forward(
         [FromBody] ForwardGeocodingRequest request,
         CancellationToken cancellationToken)
@@ -41,6 +43,8 @@ public sealed class GeocodingController : ControllerBase
     [ProducesResponseType(typeof(GeocodingResult), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(GeocodingResult), 499)]
     [ProducesResponseType(typeof(GeocodingResult), StatusCodes.Status503ServiceUnavailable)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<GeocodingResult>> Reverse(
         [FromBody] ReverseGeocodingRequest request,
         CancellationToken cancellationToken)

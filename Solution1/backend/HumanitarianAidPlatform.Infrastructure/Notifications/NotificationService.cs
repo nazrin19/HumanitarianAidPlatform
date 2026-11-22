@@ -1,4 +1,5 @@
-﻿using HumanitarianAidPlatform.Application.Notifications;
+﻿using System.ComponentModel.DataAnnotations;
+using HumanitarianAidPlatform.Application.Notifications;
 using HumanitarianAidPlatform.Domain.Entities.Notifications;
 using HumanitarianAidPlatform.Infrastructure.External;
 using Microsoft.Extensions.Logging;
@@ -40,16 +41,20 @@ public sealed class NotificationService : INotificationService
         NotificationRequest request,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ValidateRecipient(request.Recipient);
-        if (!Enum.IsDefined(request.Channel))
+        if (request is null)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(request.Channel),
-                "The requested notification channel is invalid.");
+            return InvalidInputResult(
+                NotificationChannel.Unknown,
+                "The notification request is required.");
         }
 
-        if (request.EventId is not Guid eventId || eventId == Guid.Empty)
+        var validationError = GetValidationError(request);
+        if (validationError is not null)
+        {
+            return InvalidInputResult(request.Channel, validationError);
+        }
+
+        if (request.EventId is not Guid eventId)
         {
             return await SendCoreAsync(request, cancellationToken);
         }
@@ -247,19 +252,17 @@ public sealed class NotificationService : INotificationService
         AssistanceRequestStatusNotificationRequest request,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ValidateRecipient(request.Recipient);
-        if (!Enum.IsDefined(request.Status))
+        if (request is null)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(request.Status),
-                "The assistance request status is invalid.");
+            return Task.FromResult(InvalidInputResult(
+                NotificationChannel.Unknown,
+                "The assistance request notification is required."));
         }
-        if (request.AssistanceRequestId == Guid.Empty)
+
+        var validationError = GetValidationError(request);
+        if (validationError is not null)
         {
-            throw new ArgumentException(
-                "AssistanceRequestId must not be empty.",
-                nameof(request.AssistanceRequestId));
+            return Task.FromResult(InvalidInputResult(request.Channel, validationError));
         }
 
         var note = string.IsNullOrWhiteSpace(request.Note)
@@ -282,25 +285,17 @@ public sealed class NotificationService : INotificationService
         AllocationAssignmentNotificationRequest request,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ValidateRecipient(request.Recipient);
-        if (request.AllocationId == Guid.Empty)
+        if (request is null)
         {
-            throw new ArgumentException(
-                "AllocationId must not be empty.",
-                nameof(request.AllocationId));
+            return Task.FromResult(InvalidInputResult(
+                NotificationChannel.Unknown,
+                "The allocation notification is required."));
         }
-        if (request.AssistanceRequestId == Guid.Empty)
+
+        var validationError = GetValidationError(request);
+        if (validationError is not null)
         {
-            throw new ArgumentException(
-                "AssistanceRequestId must not be empty.",
-                nameof(request.AssistanceRequestId));
-        }
-        if (request.Quantity <= 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(request.Quantity),
-                "Quantity must be greater than zero.");
+            return Task.FromResult(InvalidInputResult(request.Channel, validationError));
         }
 
         var resource = string.IsNullOrWhiteSpace(request.ResourceName)
@@ -324,13 +319,40 @@ public sealed class NotificationService : INotificationService
             cancellationToken);
     }
 
-    private static void ValidateRecipient(string recipient)
+    private static string? GetValidationError(object request)
     {
-        if (string.IsNullOrWhiteSpace(recipient))
-        {
-            throw new ArgumentException(
-                "Recipient must not be whitespace.",
-                nameof(recipient));
-        }
+        var errors = new List<ValidationResult>();
+        Validator.TryValidateObject(
+            request,
+            new ValidationContext(request),
+            errors,
+            validateAllProperties: true);
+
+        return errors.FirstOrDefault()?.ErrorMessage;
+    }
+
+    private NotificationDeliveryResult InvalidInputResult(
+        NotificationChannel channel,
+        string? validationError)
+    {
+        var timestamp = DateTimeOffset.UtcNow;
+        var correlationId = Guid.NewGuid();
+        _logger.LogWarning(
+            "Rejected notification request with {ErrorCode} for {Channel}, correlation {CorrelationId}",
+            "INVALID_NOTIFICATION_REQUEST",
+            channel,
+            correlationId);
+
+        return new NotificationDeliveryResult(
+            false,
+            NotificationDeliveryStatus.InvalidInput,
+            channel,
+            timestamp,
+            timestamp,
+            "INVALID_NOTIFICATION_REQUEST",
+            validationError ?? "The notification request is invalid.",
+            correlationId,
+            0,
+            null);
     }
 }

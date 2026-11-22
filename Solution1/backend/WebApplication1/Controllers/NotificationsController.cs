@@ -19,12 +19,14 @@ namespace HumanitarianAidPlatform.Api.Controllers
 
         [HttpPost("send")]
         [Authorize]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status202Accepted)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), StatusCodes.Status202Accepted)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status502BadGateway)]
-        [ProducesResponseType(499)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), StatusCodes.Status502BadGateway)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), 499)]
         public async Task<ActionResult<NotificationDeliveryResult>> Send(
             [FromBody] NotificationRequest request,
             CancellationToken cancellationToken)
@@ -35,12 +37,14 @@ namespace HumanitarianAidPlatform.Api.Controllers
 
         [HttpPost("assistance-request-status")]
         [Authorize]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status202Accepted)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), StatusCodes.Status202Accepted)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status502BadGateway)]
-        [ProducesResponseType(499)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), StatusCodes.Status502BadGateway)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), 499)]
         public async Task<ActionResult<NotificationDeliveryResult>> SendAssistanceRequestStatus(
             [FromBody] AssistanceRequestStatusNotificationRequest request,
             CancellationToken cancellationToken)
@@ -53,12 +57,14 @@ namespace HumanitarianAidPlatform.Api.Controllers
 
         [HttpPost("allocation-assignment")]
         [Authorize]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status202Accepted)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), StatusCodes.Status202Accepted)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status502BadGateway)]
-        [ProducesResponseType(499)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), StatusCodes.Status502BadGateway)]
+        [ProducesResponseType(typeof(NotificationDeliveryResult), 499)]
         public async Task<ActionResult<NotificationDeliveryResult>> SendAllocationAssignment(
             [FromBody] AllocationAssignmentNotificationRequest request,
             CancellationToken cancellationToken)
@@ -77,6 +83,11 @@ namespace HumanitarianAidPlatform.Api.Controllers
                 return StatusCode(
                     499,
                     result);
+            }
+
+            if (result.Status == NotificationDeliveryStatus.InvalidInput)
+            {
+                return BadRequest(result);
             }
 
             if (!result.Succeeded)

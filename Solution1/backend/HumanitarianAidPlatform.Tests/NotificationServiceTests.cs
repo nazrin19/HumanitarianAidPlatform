@@ -72,7 +72,7 @@ public class NotificationServiceTests
     }
 
     [Fact]
-    public async Task UnsupportedChannelReturnsFailureAndLogsWarning()
+    public async Task UnsupportedChannelReturnsInvalidInputAndLogsWarning()
     {
         var logger = new RecordingLogger<NotificationService>();
         var service = new NotificationService(
@@ -90,10 +90,9 @@ public class NotificationServiceTests
             CancellationToken.None);
 
         Assert.False(result.Succeeded);
-        Assert.Equal(NotificationDeliveryStatus.Failed, result.Status);
-        Assert.Equal("UNSUPPORTED_CHANNEL", result.ErrorCode);
-        Assert.Contains(logger.Messages, message =>
-            message.Contains("Notification failed"));
+        Assert.Equal(NotificationDeliveryStatus.InvalidInput, result.Status);
+        Assert.Equal("INVALID_NOTIFICATION_REQUEST", result.ErrorCode);
+        Assert.Contains(logger.Messages, message => message.Contains("Rejected notification request"));
     }
 
     [Fact]
@@ -379,41 +378,117 @@ public class NotificationServiceTests
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("\t\r\n")]
-    public async Task WhitespaceRecipientIsRejected(string recipient)
+    public async Task WhitespaceRecipientReturnsInvalidInput(string recipient)
     {
         var service = new NotificationService(
             new StubEmailSender(),
             new StubSmsSender(),
             new RecordingLogger<NotificationService>());
 
-        await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.SendAsync(
-                new NotificationRequest
-                {
-                    Recipient = recipient,
-                    Message = "Test",
-                    Channel = NotificationChannel.Email
-                },
-                CancellationToken.None));
+        var result = await service.SendAsync(
+            new NotificationRequest
+            {
+                Recipient = recipient,
+                Message = "Test",
+                Channel = NotificationChannel.Email
+            },
+            CancellationToken.None);
+
+        Assert.Equal(NotificationDeliveryStatus.InvalidInput, result.Status);
+        Assert.Equal("INVALID_NOTIFICATION_REQUEST", result.ErrorCode);
+        Assert.Equal(0, result.AttemptCount);
     }
 
     [Fact]
-    public async Task InvalidStatusEnumIsRejected()
+    public async Task InvalidStatusEnumReturnsInvalidInput()
     {
         var service = new NotificationService(
             new StubEmailSender(),
             new StubSmsSender(),
             new RecordingLogger<NotificationService>());
 
-        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
-            service.SendAssistanceRequestStatusAsync(
-                new AssistanceRequestStatusNotificationRequest
-                {
-                    Recipient = "citizen@example.test",
-                    AssistanceRequestId = Guid.NewGuid(),
-                    Status = (Domain.Entities.Requests.RequestStatus)999
-                },
-                CancellationToken.None));
+        var result = await service.SendAssistanceRequestStatusAsync(
+            new AssistanceRequestStatusNotificationRequest
+            {
+                Recipient = "citizen@example.test",
+                AssistanceRequestId = Guid.NewGuid(),
+                Status = (Domain.Entities.Requests.RequestStatus)999
+            },
+            CancellationToken.None);
+
+        Assert.Equal(NotificationDeliveryStatus.InvalidInput, result.Status);
+        Assert.Equal("INVALID_NOTIFICATION_REQUEST", result.ErrorCode);
+    }
+
+    [Theory]
+    [InlineData(NotificationChannel.Unknown)]
+    [InlineData((NotificationChannel)999)]
+    public async Task InvalidNotificationChannelReturnsInvalidInput(
+        NotificationChannel channel)
+    {
+        var sender = new StubEmailSender();
+        var service = new NotificationService(
+            sender,
+            new StubSmsSender(),
+            new RecordingLogger<NotificationService>());
+
+        var result = await service.SendAsync(
+            new NotificationRequest
+            {
+                Recipient = "citizen@example.test",
+                Message = "Approved",
+                Channel = channel
+            },
+            CancellationToken.None);
+
+        Assert.Equal(NotificationDeliveryStatus.InvalidInput, result.Status);
+        Assert.Equal(0, sender.SendCount);
+        Assert.Equal(0, result.AttemptCount);
+    }
+
+    [Fact]
+    public async Task EmptyEventIdIsRejectedInsteadOfBypassingDeduplication()
+    {
+        var sender = new StubEmailSender();
+        var service = new NotificationService(
+            sender,
+            new StubSmsSender(),
+            new RecordingLogger<NotificationService>());
+
+        var result = await service.SendAsync(
+            new NotificationRequest
+            {
+                EventId = Guid.Empty,
+                Recipient = "citizen@example.test",
+                Message = "Approved",
+                Channel = NotificationChannel.Email
+            },
+            CancellationToken.None);
+
+        Assert.Equal(NotificationDeliveryStatus.InvalidInput, result.Status);
+        Assert.Equal(0, sender.SendCount);
+    }
+
+    [Fact]
+    public async Task EmptyDomainIdReturnsInvalidInput()
+    {
+        var service = new NotificationService(
+            new StubEmailSender(),
+            new StubSmsSender(),
+            new RecordingLogger<NotificationService>());
+
+        var result = await service.SendAllocationAssignmentAsync(
+            new AllocationAssignmentNotificationRequest
+            {
+                Recipient = "citizen@example.test",
+                AllocationId = Guid.Empty,
+                AssistanceRequestId = Guid.NewGuid(),
+                Quantity = 1
+            },
+            CancellationToken.None);
+
+        Assert.Equal(NotificationDeliveryStatus.InvalidInput, result.Status);
+        Assert.Equal(0, result.AttemptCount);
     }
 
     [Fact]

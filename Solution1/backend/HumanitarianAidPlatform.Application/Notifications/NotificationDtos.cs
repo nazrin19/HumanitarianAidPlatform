@@ -5,7 +5,7 @@ using HumanitarianAidPlatform.Domain.Entities.Requests;
 namespace HumanitarianAidPlatform.Application.Notifications;
 
 /// <summary>Describes a generic notification to deliver through an application-selected channel.</summary>
-public sealed record NotificationRequest
+public sealed record NotificationRequest : IValidatableObject
 {
     /// <summary>
     /// Optional stable event identifier used to suppress recent duplicate
@@ -20,14 +20,20 @@ public sealed record NotificationRequest
     public string? Subject { get; init; }
 
     [Required]
+    [RegularExpression(@".*\S.*", ErrorMessage = "Message must not be blank.")]
     [MaxLength(4000)]
     public required string Message { get; init; }
 
     public NotificationChannel Channel { get; init; } = NotificationChannel.Email;
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        return NotificationRequestValidation.ValidateCommon(EventId, Channel);
+    }
 }
 
 /// <summary>Describes an assistance-request status update notification.</summary>
-public sealed record AssistanceRequestStatusNotificationRequest
+public sealed record AssistanceRequestStatusNotificationRequest : IValidatableObject
 {
     /// <summary>Optional stable identifier for this status-change event.</summary>
     public Guid? EventId { get; init; }
@@ -44,10 +50,34 @@ public sealed record AssistanceRequestStatusNotificationRequest
 
     [MaxLength(1000)]
     public string? Note { get; init; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        foreach (var validationResult in NotificationRequestValidation.ValidateCommon(
+                     EventId,
+                     Channel))
+        {
+            yield return validationResult;
+        }
+
+        if (AssistanceRequestId == Guid.Empty)
+        {
+            yield return new ValidationResult(
+                "AssistanceRequestId must not be empty.",
+                [nameof(AssistanceRequestId)]);
+        }
+
+        if (!Enum.IsDefined(Status))
+        {
+            yield return new ValidationResult(
+                "The assistance request status is invalid.",
+                [nameof(Status)]);
+        }
+    }
 }
 
 /// <summary>Describes a resource allocation or assignment notification.</summary>
-public sealed record AllocationAssignmentNotificationRequest
+public sealed record AllocationAssignmentNotificationRequest : IValidatableObject
 {
     /// <summary>Optional stable identifier for this allocation event.</summary>
     public Guid? EventId { get; init; }
@@ -71,6 +101,30 @@ public sealed record AllocationAssignmentNotificationRequest
 
     [MaxLength(200)]
     public string? AssignmentName { get; init; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        foreach (var validationResult in NotificationRequestValidation.ValidateCommon(
+                     EventId,
+                     Channel))
+        {
+            yield return validationResult;
+        }
+
+        if (AllocationId == Guid.Empty)
+        {
+            yield return new ValidationResult(
+                "AllocationId must not be empty.",
+                [nameof(AllocationId)]);
+        }
+
+        if (AssistanceRequestId == Guid.Empty)
+        {
+            yield return new ValidationResult(
+                "AssistanceRequestId must not be empty.",
+                [nameof(AssistanceRequestId)]);
+        }
+    }
 }
 
 /// <summary>Represents the outcome and diagnostic details of a notification delivery attempt.</summary>
@@ -87,3 +141,25 @@ public sealed record NotificationDeliveryResult(
     int AttemptCount = 1,
     DateTimeOffset? NextRetryAt = null,
     bool IsDuplicate = false);
+
+internal static class NotificationRequestValidation
+{
+    public static IEnumerable<ValidationResult> ValidateCommon(
+        Guid? eventId,
+        NotificationChannel channel)
+    {
+        if (eventId == Guid.Empty)
+        {
+            yield return new ValidationResult(
+                "EventId must be omitted or a non-empty GUID.",
+                ["EventId"]);
+        }
+
+        if (!Enum.IsDefined(channel) || channel == NotificationChannel.Unknown)
+        {
+            yield return new ValidationResult(
+                "The requested notification channel is invalid.",
+                ["Channel"]);
+        }
+    }
+}

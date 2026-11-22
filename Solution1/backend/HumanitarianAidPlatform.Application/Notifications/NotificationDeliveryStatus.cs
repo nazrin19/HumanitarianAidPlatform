@@ -5,5 +5,6 @@ public enum NotificationDeliveryStatus
     Sent,
     MockSent,
     Failed,
-    Cancelled
+    Cancelled,
+    InvalidInput
 }

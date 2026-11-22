@@ -1,6 +1,8 @@
 using HumanitarianAidPlatform.Api.Controllers;
 using HumanitarianAidPlatform.Application.Geocoding;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Reflection;
 using Xunit;
 
 namespace HumanitarianAidPlatform.Tests;
@@ -48,6 +50,24 @@ public sealed class GeocodingControllerTests
         Assert.True(body.IsAmbiguous);
         Assert.Equal(2, body.Candidates.Count);
         Assert.Equal("Place B", body.Candidates[1].DisplayAddress);
+    }
+
+    [Theory]
+    [InlineData(nameof(GeocodingController.Forward))]
+    [InlineData(nameof(GeocodingController.Reverse))]
+    public void GeocodingActionsDocumentValidationAndAuthorizationStatuses(string actionName)
+    {
+        var action = typeof(GeocodingController).GetMethod(actionName);
+        Assert.NotNull(action);
+        var statuses = action!
+            .GetCustomAttributes<ProducesResponseTypeAttribute>()
+            .Select(attribute => attribute.StatusCode)
+            .ToArray();
+
+        Assert.Contains(400, statuses);
+        Assert.Contains(401, statuses);
+        Assert.Contains(403, statuses);
+        Assert.NotNull(typeof(GeocodingController).GetCustomAttribute<AuthorizeAttribute>());
     }
 
     private static GeocodingResult CreateResult(GeocodingStatus status) =>
