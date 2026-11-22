@@ -550,6 +550,7 @@ export default function DashboardPage() {
                   index: requests.findIndex((item) => item.id === request.id),
                   id: request.id,
                   category: request.cat,
+                  address: request.address,
                   latitude: request.latitude,
                   longitude: request.longitude,
                   urgency: request.lvl,
@@ -801,6 +802,13 @@ export default function DashboardPage() {
   }
 
   const totalRequestPages = Math.max(1, Math.ceil(totalRequestCount / 100));
+  const mapLoading =
+    isLoadingRequests || isLoadingShelters || isLoadingResources;
+  const mapError = [
+    requestLoadError,
+    shelterLoadError,
+    resourceLoadError,
+  ].filter(Boolean).join(" ");
   const countText = [
     accountRole !== "Citizen" && layers.req
       ? `${mapRequests.length} mapped requests (page ${requestPage} of ${totalRequestPages})`
@@ -984,17 +992,15 @@ export default function DashboardPage() {
                 selection={selection}
                 onSelect={(type, index) => selectItem(type, index)}
                 onMapReady={setMapInstance}
-              />
-              {!requestLoadError &&
-                mapRequests.length === 0 &&
-                mapShelterPoints.length === 0 &&
-                mapResourcePoints.length === 0 && (
-                <div className={styles.mapEmpty} role="status">
-                  {accountRole === "Citizen"
+                userLocation={userLocation}
+                isLoading={mapLoading}
+                error={mapError || null}
+                emptyMessage={
+                  accountRole === "Citizen"
                     ? "No nearby mapped shelters or resources are available."
-                    : "No visible requests or shelters have saved map coordinates."}
-                </div>
-              )}
+                    : "No visible requests or shelters have saved map coordinates."
+                }
+              />
               {selection && (
                 <div className={styles.info} role="dialog" aria-label="Map item details">
                   <button

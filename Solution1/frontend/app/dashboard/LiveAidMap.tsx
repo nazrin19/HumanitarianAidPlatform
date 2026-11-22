@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CircleMarker,
   MapContainer,
@@ -9,15 +9,22 @@ import {
   useMap,
 } from "react-leaflet";
 import type { LatLngTuple, Map as LeafletMapInstance } from "leaflet";
+import styles from "./page.module.css";
 
 export type MapRequestPoint = {
   index: number;
   id: string;
   category: string;
+  address?: string | null;
   latitude: number;
   longitude: number;
   urgency: string | null;
   status: string;
+};
+
+export type MapUserLocation = {
+  latitude: number;
+  longitude: number;
 };
 
 export type MapShelterPoint = {
@@ -52,6 +59,10 @@ type Props = {
   selection: MapSelection;
   onSelect: (type: "req" | "sh" | "res", index: number) => void;
   onMapReady: (map: LeafletMapInstance | null) => void;
+  userLocation?: MapUserLocation | null;
+  isLoading?: boolean;
+  error?: string | null;
+  emptyMessage?: string;
 };
 
 const defaultCenter: LatLngTuple = [7.8731, 80.7718];
@@ -99,10 +110,18 @@ export default function LiveAidMap({
   selection,
   onSelect,
   onMapReady,
+  userLocation = null,
+  isLoading = false,
+  error = null,
+  emptyMessage = "No mapped locations are available.",
 }: Props) {
+  const [tileError, setTileError] = useState(false);
   const points = useMemo(
     () =>
       [
+        ...(userLocation
+          ? [[userLocation.latitude, userLocation.longitude] as LatLngTuple]
+          : []),
         ...(mode === "staff"
           ? requests.map(
               (request) =>
@@ -117,8 +136,12 @@ export default function LiveAidMap({
             [resource.latitude, resource.longitude] as LatLngTuple,
         ),
       ],
-    [mode, requests, shelters, resources],
+    [mode, requests, shelters, resources, userLocation],
   );
+  const hasPoints = points.length > 0;
+  const notice = tileError
+    ? "Map tiles could not be loaded. Check your connection and try again."
+    : error || (isLoading ? "Loading map locations…" : !hasPoints ? emptyMessage : "");
 
   return (
     <MapContainer
@@ -133,7 +156,27 @@ export default function LiveAidMap({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         maxZoom={19}
+        eventHandlers={{
+          tileerror: () => setTileError(true),
+          load: () => setTileError(false),
+        }}
       />
+      {userLocation && (
+        <CircleMarker
+          center={[userLocation.latitude, userLocation.longitude]}
+          radius={9}
+          pathOptions={{
+            color: "#fff",
+            weight: 3,
+            fillColor: "#246BCE",
+            fillOpacity: 1,
+          }}
+        >
+          <Popup>
+            <strong>You are here</strong>
+          </Popup>
+        </CircleMarker>
+      )}
       {mode === "staff" && requests.map((request) => {
         const selected =
           selection?.type === "req" && selection.index === request.index;
@@ -156,6 +199,12 @@ export default function LiveAidMap({
           >
             <Popup>
               <strong>Request · {request.category}</strong>
+              {request.address?.trim() && (
+                <>
+                  <br />
+                  {request.address}
+                </>
+              )}
               <br />
               Urgency: {request.urgency ?? "Not assessed"}
               <br />
@@ -164,6 +213,15 @@ export default function LiveAidMap({
           </CircleMarker>
         );
       })}
+      {notice && (
+        <div
+          className={`${styles.mapNotice}${tileError || error ? ` ${styles.mapNoticeError}` : ""}`}
+          role={tileError || error ? "alert" : "status"}
+          aria-live="polite"
+        >
+          {notice}
+        </div>
+      )}
       {mode === "citizen" && resources.map((resource) => {
         const selected =
           selection?.type === "res" && selection.index === resource.index;
