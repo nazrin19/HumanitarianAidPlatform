@@ -145,8 +145,8 @@ builder.Services.AddScoped<IVolunteerRepository, VolunteerRepository>();
 builder.Services.AddScoped<IVolunteerService, VolunteerService>();
 
 // Notification services
-builder.Services.AddScoped<EmailSender>();
-builder.Services.AddScoped<SmsSender>();
+builder.Services.AddScoped<IEmailSender, EmailSender>();
+builder.Services.AddScoped<ISmsSender, SmsSender>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 
 var app = builder.Build();

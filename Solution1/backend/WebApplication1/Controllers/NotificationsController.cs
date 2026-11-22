@@ -15,32 +15,78 @@ namespace HumanitarianAidPlatform.Api.Controllers
             _notificationService = notificationService;
         }
 
-        [HttpPost("send-email")]
+        [HttpPost("send")]
         [Authorize]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        public async Task<IActionResult> SendEmail([FromQuery] string to, [FromQuery] string subject, [FromQuery] string body)
+        [ProducesResponseType(StatusCodes.Status502BadGateway)]
+        [ProducesResponseType(499)]
+        public async Task<ActionResult<NotificationDeliveryResult>> Send(
+            [FromBody] NotificationRequest request,
+            CancellationToken cancellationToken)
         {
-            var result = await _notificationService.SendEmailAsync(to, subject, body);
-            if (result)
-                return Ok(new { message = "Email sent successfully." });
-
-            return BadRequest(new { message = "Failed to send email." });
+            var result = await _notificationService.SendAsync(request, cancellationToken);
+            return DeliveryResult(result);
         }
 
-        [HttpPost("send-sms")]
+        [HttpPost("assistance-request-status")]
         [Authorize]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        public async Task<IActionResult> SendSms([FromQuery] string phoneNumber, [FromQuery] string message)
+        [ProducesResponseType(StatusCodes.Status502BadGateway)]
+        [ProducesResponseType(499)]
+        public async Task<ActionResult<NotificationDeliveryResult>> SendAssistanceRequestStatus(
+            [FromBody] AssistanceRequestStatusNotificationRequest request,
+            CancellationToken cancellationToken)
         {
-            var result = await _notificationService.SendSmsAsync(phoneNumber, message);
-            if (result)
-                return Ok(new { message = "SMS sent successfully." });
+            var result = await _notificationService.SendAssistanceRequestStatusAsync(
+                request,
+                cancellationToken);
+            return DeliveryResult(result);
+        }
 
-            return BadRequest(new { message = "Failed to send SMS." });
+        [HttpPost("allocation-assignment")]
+        [Authorize]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status502BadGateway)]
+        [ProducesResponseType(499)]
+        public async Task<ActionResult<NotificationDeliveryResult>> SendAllocationAssignment(
+            [FromBody] AllocationAssignmentNotificationRequest request,
+            CancellationToken cancellationToken)
+        {
+            var result = await _notificationService.SendAllocationAssignmentAsync(
+                request,
+                cancellationToken);
+            return DeliveryResult(result);
+        }
+
+        private ActionResult<NotificationDeliveryResult> DeliveryResult(
+            NotificationDeliveryResult result)
+        {
+            if (result.Status == NotificationDeliveryStatus.Cancelled)
+            {
+                return StatusCode(
+                    499,
+                    result);
+            }
+
+            if (!result.Succeeded)
+            {
+                return StatusCode(
+                    StatusCodes.Status502BadGateway,
+                    result);
+            }
+
+            return result.Status == NotificationDeliveryStatus.MockSent
+                ? Accepted(result)
+                : Ok(result);
         }
     }
 }
