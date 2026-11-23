@@ -313,7 +313,11 @@ export default function DashboardPage() {
   } | null>(null);
   const [locationMessage, setLocationMessage] = useState("");
   const [locationQuery, setLocationQuery] = useState("");
-  const [geocodingMessage, setGeocodingMessage] = useState("");
+  const [geocodingFeedback, setGeocodingFeedback] = useState<{
+    kind: "status" | "error";
+    message: string;
+    details?: string[];
+  } | null>(null);
   const [geocodingCandidates, setGeocodingCandidates] = useState<
     GeocodingCandidate[]
   >([]);
@@ -323,6 +327,10 @@ export default function DashboardPage() {
   const geocodingController = useRef<AbortController | null>(null);
   const mapCardRef = useRef<HTMLElement>(null);
   const normalizedQuery = query.trim().toLowerCase();
+  const normalizedLocationQuery = locationQuery.trim();
+  const isLocationQueryValid =
+    normalizedLocationQuery.length >= 4 &&
+    normalizedLocationQuery.length <= 300;
 
   useEffect(() => {
     return () => {
@@ -802,12 +810,11 @@ export default function DashboardPage() {
 
   async function lookupMapLocation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const normalizedLocationQuery = locationQuery.trim();
-    if (
-      normalizedLocationQuery.length < 4 ||
-      normalizedLocationQuery.length > 300
-    ) {
-      setGeocodingMessage("Enter a location between 4 and 300 characters.");
+    if (!isLocationQueryValid) {
+      setGeocodingFeedback({
+        kind: "error",
+        message: "Enter a location between 4 and 300 characters.",
+      });
       return;
     }
 
@@ -815,7 +822,10 @@ export default function DashboardPage() {
     const controller = new AbortController();
     geocodingController.current = controller;
     setIsGeocoding(true);
-    setGeocodingMessage("Searching for the location…");
+    setGeocodingFeedback({
+      kind: "status",
+      message: "Searching for the location…",
+    });
     setGeocodingCandidates([]);
     setGeocodedLocation(null);
 
@@ -838,36 +848,57 @@ export default function DashboardPage() {
           longitude: outcome.result.longitude,
           label,
         });
-        setGeocodingMessage(`Showing ${label} on the map.`);
+        setGeocodingFeedback({
+          kind: "status",
+          message: `Showing ${label} on the map.`,
+        });
       } else if (outcome.kind === "ambiguous" && outcome.result) {
         const candidates = outcome.result.candidates.filter(
           hasValidCoordinates,
         );
         setGeocodingCandidates(candidates);
-        setGeocodingMessage(
-          candidates.length > 0
-            ? "Choose a matching location to preview it on the map."
-            : "The geocoder returned no valid location candidates.",
-        );
+        setGeocodingFeedback({
+          kind: candidates.length > 0 ? "status" : "error",
+          message:
+            candidates.length > 0
+              ? "Choose a matching location to preview it on the map."
+              : "The geocoder returned no valid location candidates.",
+        });
+      } else if (outcome.kind === "cancelled") {
+        setGeocodingFeedback({
+          kind: "status",
+          message: outcome.message ?? "Location search cancelled.",
+        });
       } else {
         const resultMessage =
           "result" in outcome ? outcome.result?.errorMessage : null;
-        setGeocodingMessage(
-          outcome.message ??
+        const details =
+          outcome.kind === "validationError"
+            ? Object.entries(outcome.errors).flatMap(([field, messages]) =>
+                messages.map((message) => `${field}: ${message}`),
+              )
+            : undefined;
+        setGeocodingFeedback({
+          kind: "error",
+          message:
+            outcome.message ??
             resultMessage ??
             "The location could not be found. Try a more specific search.",
-        );
+          details,
+        });
       }
     } catch (error) {
-      if (
-        geocodingController.current === controller &&
-        !(error instanceof DOMException && error.name === "AbortError")
-      ) {
-        setGeocodingMessage(
-          error instanceof Error
-            ? error.message
-            : "Unable to search for this location.",
-        );
+      if (geocodingController.current === controller) {
+        const wasCancelled =
+          error instanceof DOMException && error.name === "AbortError";
+        setGeocodingFeedback({
+          kind: wasCancelled ? "status" : "error",
+          message: wasCancelled
+            ? "Location search cancelled."
+            : error instanceof Error
+              ? error.message
+              : "Unable to search for this location.",
+        });
       }
     } finally {
       if (geocodingController.current === controller) {
@@ -877,9 +908,25 @@ export default function DashboardPage() {
     }
   }
 
+  function cancelMapLocationLookup() {
+    const controller = geocodingController.current;
+    if (!controller) return;
+
+    geocodingController.current = null;
+    controller.abort();
+    setIsGeocoding(false);
+    setGeocodingFeedback({
+      kind: "status",
+      message: "Location search cancelled.",
+    });
+  }
+
   function chooseGeocodingCandidate(candidate: GeocodingCandidate) {
     if (!hasValidCoordinates(candidate)) {
-      setGeocodingMessage("This candidate has invalid coordinates.");
+      setGeocodingFeedback({
+        kind: "error",
+        message: "This candidate has invalid coordinates.",
+      });
       return;
     }
     setGeocodedLocation({
@@ -888,7 +935,10 @@ export default function DashboardPage() {
       label: candidate.displayAddress,
     });
     setGeocodingCandidates([]);
-    setGeocodingMessage(`Showing ${candidate.displayAddress} on the map.`);
+    setGeocodingFeedback({
+      kind: "status",
+      message: `Showing ${candidate.displayAddress} on the map.`,
+    });
   }
 
   function selectItem(type: Layer, index: number, focusMap = false) {
@@ -1138,36 +1188,89 @@ export default function DashboardPage() {
                   type="search"
                   value={locationQuery}
                   maxLength={300}
+                  disabled={isGeocoding}
+                  aria-invalid={
+                    locationQuery.length > 0 && !isLocationQueryValid
+                  }
+                  aria-describedby={
+                    geocodingFeedback?.details?.length
+                      ? "map-location-query-hint map-location-query-errors"
+                      : "map-location-query-hint"
+                  }
                   placeholder="Enter an address or place"
-                  onChange={(event) => setLocationQuery(event.target.value)}
+                  onChange={(event) => {
+                    setLocationQuery(event.target.value);
+                    setGeocodingFeedback(null);
+                    setGeocodingCandidates([]);
+                    setGeocodedLocation(null);
+                  }}
                 />
                 <button
                   className={mapStyles.lookupButton}
                   type="submit"
-                  disabled={
-                    isGeocoding ||
-                    locationQuery.trim().length < 4 ||
-                    locationQuery.trim().length > 300
-                  }
+                  disabled={isGeocoding || !isLocationQueryValid}
                 >
                   {isGeocoding ? "Searching…" : "Find location"}
                 </button>
+                {isGeocoding && (
+                  <button
+                    className={mapStyles.cancelButton}
+                    type="button"
+                    onClick={cancelMapLocationLookup}
+                  >
+                    Cancel
+                  </button>
+                )}
                 {geocodedLocation && (
                   <button
                     className={mapStyles.clearButton}
                     type="button"
                     onClick={() => {
                       setGeocodedLocation(null);
-                      setGeocodingMessage("Location preview cleared.");
+                      setGeocodingFeedback({
+                        kind: "status",
+                        message: "Location preview cleared.",
+                      });
                     }}
                   >
                     Clear preview
                   </button>
                 )}
               </div>
-              {geocodingMessage && (
-                <p className={mapStyles.lookupMessage} role="status">
-                  {geocodingMessage}
+              <p
+                id="map-location-query-hint"
+                className={mapStyles.lookupHint}
+                aria-live="polite"
+              >
+                {isLocationQueryValid
+                  ? "Search accepts 4-300 characters."
+                  : "Enter a location between 4 and 300 characters."}
+              </p>
+              {geocodingFeedback?.kind === "error" && (
+                <div className={mapStyles.lookupError} role="alert">
+                  <p className={mapStyles.lookupMessage}>
+                    {geocodingFeedback.message}
+                  </p>
+                  {geocodingFeedback.details &&
+                    geocodingFeedback.details.length > 0 && (
+                      <ul
+                        id="map-location-query-errors"
+                        className={mapStyles.lookupErrorDetails}
+                      >
+                        {geocodingFeedback.details.map((detail, index) => (
+                          <li key={`${detail}-${index}`}>{detail}</li>
+                        ))}
+                      </ul>
+                    )}
+                </div>
+              )}
+              {geocodingFeedback?.kind === "status" && (
+                <p
+                  className={mapStyles.lookupMessage}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {geocodingFeedback.message}
                 </p>
               )}
               {geocodingCandidates.length > 0 && (

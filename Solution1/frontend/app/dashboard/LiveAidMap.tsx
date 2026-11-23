@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleMarker,
   MapContainer,
@@ -10,7 +10,12 @@ import {
   useMap,
 } from "react-leaflet";
 import { divIcon } from "leaflet";
-import type { LatLngTuple, Map as LeafletMapInstance } from "leaflet";
+import type {
+  LatLngTuple,
+  Map as LeafletMapInstance,
+  TileErrorEvent,
+  TileEvent,
+} from "leaflet";
 import styles from "./LiveAidMap.module.css";
 
 export type MapRequestPoint = {
@@ -135,7 +140,8 @@ export default function LiveAidMap({
   error = null,
   emptyMessage = "No mapped locations are available.",
 }: LiveAidMapProps) {
-  const [tileError, setTileError] = useState(false);
+  const failedTiles = useRef(new Set<HTMLImageElement>());
+  const [failedTileCount, setFailedTileCount] = useState(0);
   const aidPoints = useMemo(
     () =>
       [
@@ -169,6 +175,22 @@ export default function LiveAidMap({
     ],
     [aidPoints, geocodedLocation, userLocation],
   );
+  const tileError = failedTileCount > 0;
+  function removeFailedTile(tile: HTMLImageElement) {
+    if (failedTiles.current.delete(tile)) {
+      setFailedTileCount(failedTiles.current.size);
+    }
+  }
+  function handleTileError(event: TileErrorEvent) {
+    failedTiles.current.add(event.tile);
+    setFailedTileCount(failedTiles.current.size);
+  }
+  function handleTileLoad(event: TileEvent) {
+    removeFailedTile(event.tile);
+  }
+  function handleTileUnload(event: TileEvent) {
+    removeFailedTile(event.tile);
+  }
   const notice = tileError
     ? "Map tiles could not be loaded. Check your connection and try again."
     : error ||
@@ -192,8 +214,9 @@ export default function LiveAidMap({
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         maxZoom={19}
         eventHandlers={{
-          tileerror: () => setTileError(true),
-          load: () => setTileError(false),
+          tileerror: handleTileError,
+          tileload: handleTileLoad,
+          tileunload: handleTileUnload,
         }}
       />
       {userLocation && (

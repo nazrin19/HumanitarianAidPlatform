@@ -64,6 +64,7 @@
 
 .lookupRow {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
@@ -81,6 +82,7 @@
 }
 
 .lookupButton,
+.cancelButton,
 .clearButton,
 .candidateButton {
   padding: 8px 12px;
@@ -93,16 +95,41 @@
   font-weight: 600;
 }
 
+.lookupInput:disabled {
+  background: #f3f5f8;
+  cursor: wait;
+}
+
 .lookupButton:disabled {
   border-color: #e6eaef;
   color: #667085;
   cursor: not-allowed;
 }
 
+.lookupHint,
 .lookupMessage {
   margin: 0;
   color: #667085;
   font-size: 13px;
+}
+
+.lookupError {
+  display: grid;
+  gap: 4px;
+  color: #8f1d1d;
+  font-size: 13px;
+}
+
+.lookupErrorDetails {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+
+.lookupError .lookupMessage {
+  color: #8f1d1d;
 }
 
 .candidateList {
@@ -121,9 +148,32 @@
 }
 
 .lookupButton:focus-visible,
+.cancelButton:focus-visible,
 .clearButton:focus-visible,
 .candidateButton:focus-visible,
 .lookupInput:focus-visible {
   outline: 3px solid rgba(27, 107, 71, 0.35);
   outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .lookupRow {
+    align-items: stretch;
+  }
+
+  .lookupInput {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+
+  .lookupButton,
+  .cancelButton,
+  .clearButton {
+    flex: 1 1 100px;
+  }
+
+  .lookupHint,
+  .lookupMessage {
+    overflow-wrap: anywhere;
+  }
 }
