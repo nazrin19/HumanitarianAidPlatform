@@ -831,13 +831,29 @@ export default function DashboardPage() {
 
     try {
       const accessToken = window.sessionStorage.getItem("authToken") ?? undefined;
+      if (!accessToken) {
+        clearSessionCredentials();
+        setIsRedirecting(true);
+        router.replace("/login");
+        return;
+      }
       const outcome = await forwardGeocode(normalizedLocationQuery, {
         accessToken,
         signal: controller.signal,
       });
       if (geocodingController.current !== controller) return;
 
-      if (
+      if (outcome.kind === "unauthorized") {
+        clearSessionCredentials();
+        setIsRedirecting(true);
+        router.replace("/login");
+      } else if (outcome.kind === "forbidden") {
+        setGeocodingFeedback({
+          kind: "error",
+          message:
+            "You do not have permission to search for locations with this account.",
+        });
+      } else if (
         outcome.kind === "found" &&
         outcome.result &&
         hasValidCoordinates(outcome.result)

@@ -43,6 +43,16 @@ export type GeocodingLookupOutcome =
       errors: Record<string, string[]>;
     }
   | {
+      kind: "unauthorized";
+      httpStatus: 401;
+      message: string;
+    }
+  | {
+      kind: "forbidden";
+      httpStatus: 403;
+      message: string;
+    }
+  | {
       kind: "networkError" | "invalidResponse" | "httpError";
       httpStatus?: number;
       message: string;
@@ -200,6 +210,20 @@ async function postGeocoding(
       },
     );
     const body: unknown = await response.json().catch(() => undefined);
+    if (response.status === 401) {
+      return {
+        kind: "unauthorized",
+        httpStatus: 401,
+        message: "Your session has expired. Please sign in again.",
+      };
+    }
+    if (response.status === 403) {
+      return {
+        kind: "forbidden",
+        httpStatus: 403,
+        message: "You do not have permission to search for locations.",
+      };
+    }
     const result = parseResult(body);
 
     if (result) {
