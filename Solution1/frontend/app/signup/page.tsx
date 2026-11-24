@@ -23,7 +23,7 @@ const accountTypes = [
 export default function SignupPage() {
   return (
     <main className={`${styles.page} min-h-screen flex items-center justify-center p-4 md:p-6`}>
-      <div className={`${styles.shell} w-full max-w-[1080px]`}>
+      <div className={`${styles.shell} w-full max-w-270`}>
         <section className={styles.left}>
           <div className={styles.brand}>
             <Image
@@ -63,7 +63,7 @@ export default function SignupPage() {
             Already have an account? <Link href="/login">Login</Link>
           </p>
 
-          <div className="mx-auto my-auto w-full max-w-[500px] pt-3">
+          <div className="mx-auto my-auto w-full max-w-125 pt-3">
             <h1 className="text-center text-3xl font-bold md:text-4xl">
               Choose an account type
             </h1>
@@ -75,7 +75,7 @@ export default function SignupPage() {
                 <Link
                   key={account.href}
                   href={account.href}
-                  className="rounded-2xl border border-slate-200 p-6 transition hover:border-emerald-700 hover:bg-emerald-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700"
+                  className="rounded-2xl border border-slate-200 p-6 transition hover:border-emerald-700 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-emerald-700"
                 >
                   <h2 className="text-xl font-semibold">{account.title}</h2>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
