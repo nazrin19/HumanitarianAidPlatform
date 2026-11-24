@@ -1,0 +1,196 @@
+.map {
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+}
+
+.mapLoading {
+  display: grid;
+  min-height: 400px;
+  place-items: center;
+  color: var(--muted, #667085);
+}
+
+.mapNotice {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 500;
+  width: min(360px, calc(100% - 32px));
+  padding: 14px 18px;
+  transform: translate(-50%, -50%);
+  border-radius: 12px;
+  background: var(--surface, rgba(255, 255, 255, 0.95));
+  color: var(--muted, #667085);
+  font-size: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.mapNoticeError {
+  color: var(--error-color, #8f1d1d);
+}
+
+.geocodedLocationIcon {
+  border: 0;
+  background: transparent;
+}
+
+.geocodedLocationIcon span {
+  position: absolute;
+  bottom: 2px;
+  left: 2px;
+  display: block;
+  width: 20px;
+  height: 20px;
+  transform: rotate(-45deg);
+  border: 3px solid var(--surface, #fff);
+  border-radius: 50% 50% 50% 0;
+  background: #7b2cbf;
+  box-shadow: 0 1px 5px rgba(18, 32, 58, 0.55);
+}
+
+.locationLookup {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.lookupLabel {
+  color: var(--ink, #12203a);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lookupRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lookupInput {
+  min-width: 180px;
+  min-height: 40px;
+  flex: 1;
+  padding: 0 14px;
+  border: 1.5px solid var(--line, #e6eaef);
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  color: var(--ink, #12203a);
+  font: inherit;
+  font-size: 13px;
+}
+
+.lookupInput::placeholder {
+  color: var(--muted, #667085);
+}
+
+.lookupButton,
+.cancelButton,
+.clearButton,
+.candidateButton {
+  padding: 8px 14px;
+  border: 1.5px solid var(--green, #1b6b47);
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  color: var(--green, #1b6b47);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.lookupButton:hover:not(:disabled),
+.cancelButton:hover,
+.clearButton:hover,
+.candidateButton:hover {
+  background: var(--mint, #e3f1ea);
+  color: var(--green-dark, #145437);
+}
+
+.lookupInput:disabled {
+  background: var(--page-bg, #f3f5f8);
+  cursor: wait;
+}
+
+.lookupButton:disabled {
+  border-color: var(--line, #e6eaef);
+  background: var(--line, #e6eaef);
+  color: var(--muted, #667085);
+  cursor: not-allowed;
+}
+
+.lookupHint,
+.lookupMessage {
+  margin: 0;
+  color: var(--muted, #667085);
+  font-size: 13px;
+}
+
+.lookupError {
+  display: grid;
+  gap: 4px;
+  color: var(--error-color, #8f1d1d);
+  font-size: 13px;
+}
+
+.lookupErrorDetails {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+
+.lookupError .lookupMessage {
+  color: var(--error-color, #8f1d1d);
+}
+
+.candidateList {
+  display: grid;
+  max-height: 180px;
+  gap: 6px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.candidateButton {
+  width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.lookupButton:focus-visible,
+.cancelButton:focus-visible,
+.clearButton:focus-visible,
+.candidateButton:focus-visible,
+.lookupInput:focus-visible {
+  outline: 3px solid var(--green, #1b6b47);
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .lookupRow {
+    align-items: stretch;
+  }
+
+  .lookupInput {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+
+  .lookupButton,
+  .cancelButton,
+  .clearButton {
+    flex: 1 1 100px;
+  }
+
+  .lookupHint,
+  .lookupMessage {
+    overflow-wrap: anywhere;
+  }
+}

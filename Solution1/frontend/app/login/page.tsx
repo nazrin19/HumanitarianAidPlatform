@@ -3,39 +3,54 @@
 import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useRef, useState } from "react";
+import { setSessionCredentials } from "../lib/auth-session";
 import styles from "./page.module.css";
 
-type LoginField = "role" | "username" | "password";
+type LoginField = "email" | "password";
+
+type LoginResponse = {
+  token?: string;
+  role?: string;
+};
+
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001"
+).replace(/\/+$/, "");
+
+const ROLE_DESTINATIONS: Record<string, string> = {
+  Citizen: "/dashboard",
+  Coordinator: "/dashboard",
+  CaseManager: "/dashboard",
+  ResourceManager: "/dashboard",
+  ShelterAdmin: "/dashboard",
+  Volunteer: "/portal",
+  Donor: "/portal",
+  VolunteerCoordinator: "/portal",
+  DonorOfficer: "/portal",
+  PartnerOfficer: "/portal",
+  Admin: "/admin",
+};
 
 export default function LoginPage() {
-  const [role, setRole] = useState("");
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [invalidField, setInvalidField] = useState<LoginField | null>(null);
-  const roleRef = useRef<HTMLSelectElement>(null);
-  const usernameRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting) return;
     setError("");
-    setIsSuccess(false);
     setInvalidField(null);
 
-    if (!role) {
-      setInvalidField("role");
-      setError("Select your role.");
-      roleRef.current?.focus();
-      return;
-    }
-
-    if (!username.trim()) {
-      setInvalidField("username");
-      setError("Enter your username.");
-      usernameRef.current?.focus();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setInvalidField("email");
+      setError("Enter a valid email address.");
+      emailRef.current?.focus();
       return;
     }
 
@@ -46,8 +61,68 @@ export default function LoginPage() {
       return;
     }
 
-    setIsSuccess(true);
-    setError("Signed in. Redirecting to your dashboard…");
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+
+      const responseText = await response.text();
+      let responseBody: unknown;
+      if (responseText) {
+        try {
+          responseBody = JSON.parse(responseText);
+        } catch {
+          if (response.ok) {
+            throw new Error("The server returned an invalid login response.");
+          }
+        }
+      }
+
+      if (!response.ok) {
+        let responseMessage: string | undefined;
+        if (responseBody && typeof responseBody === "object") {
+          const body = responseBody as {
+            detail?: unknown;
+            message?: unknown;
+            title?: unknown;
+          };
+          const message = body.detail ?? body.message ?? body.title;
+          if (typeof message === "string") responseMessage = message;
+        }
+        throw new Error(
+          responseMessage ||
+            `Login failed (${response.status} ${response.statusText}).`,
+        );
+      }
+
+      if (!responseBody || typeof responseBody !== "object") {
+        throw new Error("The server returned an invalid login response.");
+      }
+
+      const result = responseBody as LoginResponse;
+      if (!result.token || !result.role) {
+        throw new Error("The server response is missing the token or role.");
+      }
+
+      const destination = ROLE_DESTINATIONS[result.role];
+      if (!destination) {
+        throw new Error("Your account role is not recognized.");
+      }
+
+      setSessionCredentials(result.token, result.role);
+      window.location.assign(destination);
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Unable to log in. Please try again.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -58,7 +133,7 @@ export default function LoginPage() {
         className={`${styles.shell} w-full max-w-270 min-h-172.5 rounded-[28px] overflow-hidden grid grid-cols-2 bg-white shadow-xl`}
       >
         <section className={styles.formPanel}>
-          <div className={styles.brand}>
+          <Link className={styles.brand} href="/" aria-label="Go to Humanitarian Aid Platform home">
             <Image
               className={styles.logo}
               src="/humanitarian-aid-platform-logo.svg"
@@ -67,7 +142,7 @@ export default function LoginPage() {
               height={50}
             />
             <span>Humanitarian Aid Platform</span>
-          </div>
+          </Link>
 
           <div className={styles.main}>
             <h1>Welcome back!</h1>
@@ -77,37 +152,16 @@ export default function LoginPage() {
 
             <form noValidate onSubmit={handleSubmit}>
               <div className={styles.field}>
-                <label htmlFor="login-role">Role</label>
-                <select
-                  ref={roleRef}
-                  id="login-role"
-                  aria-label="Role"
-                  aria-invalid={invalidField === "role"}
-                  className={`${styles.roleSelect} ${role ? "" : styles.rolePlaceholder}`}
-                  value={role}
-                  onChange={(event) => setRole(event.target.value)}
-                >
-                  <option value="" disabled>
-                    Select your role
-                  </option>
-                  <option value="Coordinator">Coordinator</option>
-                  <option value="Shelter manager">Shelter manager</option>
-                  <option value="Volunteer">Volunteer</option>
-                  <option value="Donor">Donor</option>
-                </select>
-              </div>
-
-              <div className={styles.field}>
-                <label htmlFor="login-username">Username</label>
+                <label htmlFor="login-email">Email Address</label>
                 <input
-                  ref={usernameRef}
-                  id="login-username"
-                  type="text"
-                  autoComplete="username"
-                  aria-invalid={invalidField === "username"}
-                  placeholder="Enter your username"
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
+                  ref={emailRef}
+                  id="login-email"
+                  type="email"
+                  autoComplete="email"
+                  aria-invalid={invalidField === "email"}
+                  placeholder="Enter your email address"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
                 />
               </div>
 
@@ -148,18 +202,22 @@ export default function LoginPage() {
                 </button>
               </div>
 
-              <a className={styles.forgot} href="#forgot">
+              <span className={styles.forgot} title="Password recovery is not configured yet">
                 Forgot password?
-              </a>
+              </span>
               <div
-                className={`${styles.error} ${isSuccess ? styles.success : ""}`}
+                className={styles.error}
                 role="alert"
                 aria-live="polite"
               >
                 {error}
               </div>
-              <button className={styles.button} type="submit">
-                Login
+              <button
+                className={styles.button}
+                type="submit"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "Signing in..." : "Login"}
               </button>
             </form>
 

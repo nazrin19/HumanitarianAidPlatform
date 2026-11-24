@@ -1,6 +1,8 @@
 ﻿
 using HumanitarianAidPlatform.Application.Resources;
 using HumanitarianAidPlatform.Application.Resources.DTOs;
+using HumanitarianAidPlatform.Domain.Entities.Users;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HumanitarianAidPlatform.Api.Controllers;
@@ -38,6 +40,7 @@ public class ResourcesController : ControllerBase
 
     // POST: api/resources
     [HttpPost]
+    [Authorize(Roles = $"{RoleNames.Admin},{RoleNames.ResourceManager}")]
     public async Task<ActionResult<ResourceDto>> Create(
         [FromBody] ResourceDto dto)
     {
@@ -51,6 +54,7 @@ public class ResourcesController : ControllerBase
 
     // PUT: api/resources/{id}
     [HttpPut("{id:guid}")]
+    [Authorize(Roles = $"{RoleNames.Admin},{RoleNames.ResourceManager}")]
     public async Task<ActionResult<ResourceDto>> Update(
         Guid id,
         [FromBody] ResourceDto dto)
@@ -65,6 +69,7 @@ public class ResourcesController : ControllerBase
 
     // DELETE: api/resources/{id}
     [HttpDelete("{id:guid}")]
+    [Authorize(Roles = $"{RoleNames.Admin},{RoleNames.ResourceManager}")]
     public async Task<IActionResult> Delete(Guid id)
     {
         var deleted = await _service.DeleteAsync(id);

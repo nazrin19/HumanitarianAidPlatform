@@ -21,6 +21,13 @@
   box-sizing: border-box;
 }
 
+.page button,
+.page input,
+.page select,
+.page a {
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
 .page a {
   color: inherit;
   text-decoration: none;
@@ -463,73 +470,21 @@
 .mapBox {
   position: relative;
   overflow: hidden;
+  height: min(68vh, 640px);
+  min-height: 400px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: #eaf6ee;
-  user-select: none;
-}
-
-.map {
-  display: block;
-  width: 100%;
-  height: auto;
-  cursor: grab;
-  touch-action: pan-y pinch-zoom;
-}
-
-.dragging {
-  cursor: grabbing;
-}
-
-.page :global(.mapMarker) {
-  cursor: pointer;
-}
-
-.page :global(.mapMarker:focus-visible) {
-  outline: none;
-}
-
-.page :global(.mapMarker:focus-visible) > :first-child {
-  stroke: #12203a;
-  stroke-width: 3;
-}
-
-.zoom {
-  position: absolute;
-  bottom: 14px;
-  left: 14px;
-  display: grid;
-  gap: 6px;
-}
-
-.zoom button {
-  width: 36px;
-  height: 36px;
-  border: 0;
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 2px 8px rgba(18, 32, 58, 0.2);
-  color: var(--ink);
-  cursor: pointer;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.zoom button:hover {
-  background: var(--mint);
 }
 
 .mapKey {
-  position: absolute;
-  bottom: 14px;
-  left: 62px;
   display: flex;
   gap: 16px;
   flex-wrap: wrap;
+  margin-top: 12px;
   padding: 8px 14px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 2px 8px rgba(18, 32, 58, 0.15);
+  background: var(--mint);
   font-size: 12px;
   font-weight: 600;
 }
@@ -550,6 +505,10 @@
   background: #d93025;
 }
 
+.keyCritical {
+  background: #a31d1d;
+}
+
 .keyMedium {
   background: #f29900;
 }
@@ -558,21 +517,24 @@
   background: #1fa463;
 }
 
+.keyUnassessed {
+  background: #718096;
+}
+
 .keyShelter {
   border-radius: 3px !important;
   background: #1b6b47;
 }
 
-.keyDepot {
-  border-radius: 2px !important;
-  background: #f29900;
-  transform: rotate(45deg) scale(0.85);
+.keyResource {
+  background: #246bce;
 }
 
 .info {
   position: absolute;
   top: 14px;
   right: 14px;
+  z-index: 1100;
   width: 272px;
   padding: 16px;
   border-radius: 16px;
@@ -668,6 +630,17 @@
 }
 
 .completed {
+  background: #e9ecef;
+  color: #495057;
+}
+
+.deferred,
+.rejected {
+  background: #fde3e1;
+  color: #b3261e;
+}
+
+.unassessed {
   background: #e9ecef;
   color: #495057;
 }
@@ -1131,15 +1104,9 @@
     box-shadow: none;
   }
 
-  .mapKey {
-    position: static;
-    border-radius: 0;
-    box-shadow: none;
-  }
-
-  .zoom {
-    top: 12px;
-    bottom: auto;
+  .mapBox {
+    height: 480px;
+    min-height: 360px;
   }
 
   .count {

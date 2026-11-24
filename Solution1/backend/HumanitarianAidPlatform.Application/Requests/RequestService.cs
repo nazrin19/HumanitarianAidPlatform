@@ -2,6 +2,8 @@
 using HumanitarianAidPlatform.Application.Common;
 using HumanitarianAidPlatform.Domain.Entities.Requests;
 using HumanitarianAidPlatform.Domain.Entities.Users;
+using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace HumanitarianAidPlatform.Application.Requests;
 
@@ -25,13 +27,26 @@ public class RequestService : IRequestService
         RoleNames.Admin
     };
 
+    private static readonly HashSet<string> WorkflowRoles = new()
+    {
+        RoleNames.Coordinator,
+        RoleNames.CaseManager,
+        RoleNames.ResourceManager,
+        RoleNames.Admin
+    };
+
     private readonly IRequestRepository _repository;
     private readonly IUrgencyClassifier _classifier;
+    private readonly ILogger<RequestService> _logger;
 
-    public RequestService(IRequestRepository repository, IUrgencyClassifier classifier)
+    public RequestService(
+        IRequestRepository repository,
+        IUrgencyClassifier classifier,
+        ILogger<RequestService> logger)
     {
         _repository = repository;
         _classifier = classifier;
+        _logger = logger;
     }
 
     public Task<PagedResult<RequestListItemDto>> GetMineAsync(
@@ -117,10 +132,14 @@ public class RequestService : IRequestService
             await _repository.AttachRecommendationAsync(request.Id, recommendation, history);
             request.Status = RequestStatus.PendingReview;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
-            // TODO (task A4): log this and mark the request "needs manual review".
-            // For now the request stays "Submitted" and a person picks it up.
+            _logger.LogError(
+                exception,
+                "Urgency classification failed for request {RequestId} using {ClassifierName}. " +
+                "The saved request remains available for manual review.",
+                request.Id,
+                _classifier.Name);
         }
 
         return ToDto(request);
@@ -133,6 +152,116 @@ public class RequestService : IRequestService
             return null;
 
         return ToDto(request);
+    }
+
+    public async Task<ReviewResult> ReviewAsync(
+        Guid id,
+        Guid reviewerId,
+        string reviewerRole,
+        ReviewRequestDto dto)
+    {
+        if (!ReviewerRoles.Contains(reviewerRole))
+            return new ReviewResult(ReviewResultCode.CriticalCoordinatorRequired);
+
+        var request = await _repository.GetTrackedByIdAsync(id);
+        if (request is null)
+            return new ReviewResult(ReviewResultCode.NotFound);
+
+        var targetStatus = dto.Action switch
+        {
+            ReviewAction.Approved or ReviewAction.Modified => RequestStatus.Approved,
+            ReviewAction.Rejected => RequestStatus.Rejected,
+            ReviewAction.Deferred => RequestStatus.Deferred,
+            _ => request.Status
+        };
+
+        if (!RequestStatusTransitions.CanTransition(request.Status, targetStatus))
+            return new ReviewResult(ReviewResultCode.InvalidTransition);
+
+        if ((dto.Action is ReviewAction.Rejected or ReviewAction.Deferred) &&
+            string.IsNullOrWhiteSpace(dto.Reason))
+            return new ReviewResult(ReviewResultCode.ReasonRequired);
+
+        var originalValues = new
+        {
+            request.Category,
+            request.Description
+        };
+
+        if (dto.Action == ReviewAction.Modified)
+        {
+            if (dto.Category.HasValue)
+                request.Category = dto.Category.Value;
+            if (dto.Description is not null)
+                request.Description = dto.Description.Trim();
+        }
+
+        var changedValues = new
+        {
+            Category = dto.Category,
+            Description = dto.Description
+        };
+
+        var recommendation = await _repository.GetRecommendationAsync(id);
+        var now = DateTime.UtcNow;
+        var history = new RequestStatusHistory
+        {
+            Id = Guid.NewGuid(),
+            AssistanceRequestId = id,
+            FromStatus = request.Status,
+            ToStatus = targetStatus,
+            ChangedByUserId = reviewerId,
+            ChangedAt = now,
+            Note = dto.Reason?.Trim()
+        };
+        var auditLog = new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            AssistanceRequestId = id,
+            AiSnapshotJson = JsonSerializer.Serialize(recommendation),
+            AiConfidence = recommendation?.Confidence,
+            Action = dto.Action,
+            ChangedValuesJson = dto.Action == ReviewAction.Modified
+                ? JsonSerializer.Serialize(new { Original = originalValues, Changed = changedValues })
+                : null,
+            Reason = dto.Reason?.Trim(),
+            DecidedByUserId = reviewerId,
+            DecidedAt = now
+        };
+
+        await _repository.SaveReviewAsync(history, auditLog);
+        return new ReviewResult(ReviewResultCode.Success, ToDto(request));
+    }
+
+    public async Task<ReviewResult> ChangeStatusAsync(
+        Guid id,
+        Guid userId,
+        string userRole,
+        ChangeRequestStatusDto dto)
+    {
+        if (!WorkflowRoles.Contains(userRole))
+            return new ReviewResult(ReviewResultCode.CriticalCoordinatorRequired);
+
+        var request = await _repository.GetTrackedByIdAsync(id);
+        if (request is null)
+            return new ReviewResult(ReviewResultCode.NotFound);
+
+        if (!RequestStatusTransitions.CanTransition(request.Status, dto.Status))
+            return new ReviewResult(ReviewResultCode.InvalidTransition);
+
+        var now = DateTime.UtcNow;
+        await _repository.SaveStatusChangeAsync(new RequestStatusHistory
+        {
+            Id = Guid.NewGuid(),
+            AssistanceRequestId = id,
+            FromStatus = request.Status,
+            ToStatus = dto.Status,
+            ChangedByUserId = userId,
+            ChangedAt = now,
+            Note = dto.Reason?.Trim()
+        });
+
+        return new ReviewResult(ReviewResultCode.Success, ToDto(request));
     }
 
     public async Task<IReadOnlyList<RequestStatusHistoryDto>?> GetHistoryAsync(Guid id, Guid requesterId, string requesterRole)

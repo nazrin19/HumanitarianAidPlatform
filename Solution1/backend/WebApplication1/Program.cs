@@ -1,6 +1,7 @@
 using HumanitarianAidPlatform.Api.Middleware;
 using HumanitarianAidPlatform.Api.Swagger;
 using HumanitarianAidPlatform.Application.Ai;
+using HumanitarianAidPlatform.Application.Admin;
 using HumanitarianAidPlatform.Application.Auth;
 using HumanitarianAidPlatform.Application.Donors;
 using HumanitarianAidPlatform.Application.Notifications;
@@ -22,9 +23,16 @@ using HumanitarianAidPlatform.Infrastructure.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using HumanitarianAidPlatform.Application.Campaigns;
+using HumanitarianAidPlatform.Infrastructure.Repositories.Campaigns;
+using HumanitarianAidPlatform.Application.Donations;
+using HumanitarianAidPlatform.Application.Geocoding;
+using HumanitarianAidPlatform.Infrastructure.Repositories.Donations;
 using System;
 using System.Text;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Options;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,7 +42,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy(ReactDevelopmentCors, policy =>
     {
-        policy.WithOrigins("http://localhost:5173")
+        policy.WithOrigins("http://localhost:3000", "http://localhost:5173")
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
@@ -119,6 +127,7 @@ else
 // Authentication services
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
 
@@ -141,17 +150,83 @@ builder.Services.AddScoped<IDonorRepository, DonorRepository>();
 builder.Services.AddScoped<IDonorService, DonorService>();
 builder.Services.AddScoped<IVolunteerRepository, VolunteerRepository>();
 builder.Services.AddScoped<IVolunteerService, VolunteerService>();
+builder.Services.AddScoped<ICampaignRepository, CampaignRepository>();
+builder.Services.AddScoped<ICampaignService, CampaignService>();
+builder.Services.AddScoped<IDonationRepository, DonationRepository>();
+builder.Services.AddScoped<IDonationService, DonationService>();
+builder.Services.AddScoped<IVolunteerTaskRepository, VolunteerTaskRepository>();
+builder.Services.AddScoped<IVolunteerTaskService, VolunteerTaskService>();
+
+// Nominatim provider configuration and typed HTTP client
+builder.Services.AddOptions<NominatimOptions>()
+    .Bind(builder.Configuration.GetSection(NominatimOptions.SectionName))
+    .Validate(
+        options =>
+            Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var baseUri) &&
+            baseUri.Scheme == Uri.UriSchemeHttps &&
+            !string.IsNullOrWhiteSpace(options.UserAgent) &&
+            options.UserAgent.Contains('@') &&
+            options.TimeoutSeconds is >= 1 and <= 120 &&
+            options.MaximumCandidates is >= 2 and <= 10 &&
+            options.MaximumRetries is >= 0 and <= 2,
+        "Nominatim configuration requires an HTTPS base URL, a contact-bearing User-Agent, a 1-120 second timeout, 2-10 candidates, and 0-2 retries.")
+    .ValidateOnStart();
+
+// HttpClientFactory logs request URIs, which contain user-entered location text.
+builder.Logging.AddFilter(
+    "System.Net.Http.HttpClient.IGeocodingService",
+    LogLevel.None);
+
+builder.Services.AddHttpClient<IGeocodingService, MappingClient>(
+    (serviceProvider, client) =>
+    {
+        var options = serviceProvider
+            .GetRequiredService<IOptions<NominatimOptions>>()
+            .Value;
+        client.BaseAddress = new Uri(
+            options.BaseUrl.EndsWith("/", StringComparison.Ordinal)
+                ? options.BaseUrl
+                : $"{options.BaseUrl}/",
+            UriKind.Absolute);
+        client.Timeout = Timeout.InfiniteTimeSpan;
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
+    });
 
 // Notification services
-builder.Services.AddScoped<EmailSender>();
-builder.Services.AddScoped<SmsSender>();
+builder.Services.AddSingleton<NotificationDeliveryDeduplicator>();
+builder.Services.AddScoped<IEmailSender, EmailSender>();
+builder.Services.AddScoped<ISmsSender, SmsSender>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 
 var app = builder.Build();
 
+if (args.Contains("--reset-admin-password", StringComparer.Ordinal))
+{
+    if (args.Length != 1)
+    {
+        throw new InvalidOperationException(
+            "--reset-admin-password must be the only application argument.");
+    }
+
+    await ResetAdminPasswordAsync(app);
+    return;
+}
+
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
 app.UseCors(ReactDevelopmentCors);
+
+if (app.Configuration.GetValue<bool>("AdminBootstrap:Enabled"))
+{
+    using var scope = app.Services.CreateScope();
+    var adminUsers = scope.ServiceProvider.GetRequiredService<IAdminUserService>();
+    var created = await adminUsers.BootstrapFirstAdminAsync(
+        app.Configuration["AdminBootstrap:Email"],
+        app.Configuration["AdminBootstrap:Password"],
+        CancellationToken.None);
+    if (created)
+        app.Logger.LogWarning("A first administrator account was bootstrapped. Remove the bootstrap secret after use.");
+}
 
 // API documentation
 if (app.Environment.IsDevelopment())
@@ -178,3 +253,69 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+static async Task ResetAdminPasswordAsync(WebApplication app)
+{
+    Console.Write("Existing Admin email: ");
+    var email = Console.ReadLine();
+    if (string.IsNullOrWhiteSpace(email))
+    {
+        Console.Error.WriteLine("An Admin email is required.");
+        Environment.ExitCode = 1;
+        return;
+    }
+
+    var password = ReadHiddenInput("New password (12+ characters): ");
+    var confirmation = ReadHiddenInput("Confirm new password: ");
+    if (!string.Equals(password, confirmation, StringComparison.Ordinal))
+    {
+        Console.Error.WriteLine("The passwords did not match. No changes were made.");
+        Environment.ExitCode = 1;
+        return;
+    }
+
+    await using var scope = app.Services.CreateAsyncScope();
+    var adminUsers = scope.ServiceProvider.GetRequiredService<IAdminUserService>();
+    var reset = await adminUsers.ResetActiveAdminPasswordAsync(
+        email,
+        password,
+        CancellationToken.None);
+    if (!reset)
+    {
+        Console.Error.WriteLine("No active Admin account was found for that email. No changes were made.");
+        Environment.ExitCode = 1;
+        return;
+    }
+
+    Console.WriteLine("Admin password updated. Start the API normally and sign in with the new password.");
+}
+
+static string ReadHiddenInput(string prompt)
+{
+    Console.Write(prompt);
+    var value = new StringBuilder();
+    while (true)
+    {
+        var key = Console.ReadKey(intercept: true);
+        if (key.Key == ConsoleKey.Enter)
+        {
+            Console.WriteLine();
+            return value.ToString();
+        }
+
+        if (key.Key == ConsoleKey.Backspace)
+        {
+            if (value.Length > 0)
+            {
+                value.Length--;
+            }
+
+            continue;
+        }
+
+        if (!char.IsControl(key.KeyChar))
+        {
+            value.Append(key.KeyChar);
+        }
+    }
+}

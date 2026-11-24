@@ -4,129 +4,298 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   CSSProperties,
-  MouseEvent as ReactMouseEvent,
-  PointerEvent,
+  type FormEvent,
+  useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
+import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
+import type { Map as LeafletMapInstance } from "leaflet";
+import {
+  AUTH_SESSION_LOADING,
+  clearSessionCredentials,
+  useSessionRole,
+} from "../lib/auth-session";
+import { forwardGeocode } from "../lib/geocoding";
 import styles from "./page.module.css";
+import mapStyles from "./LiveAidMap.module.css";
+import type {
+  MapGeocodedPoint,
+  MapMarkerType,
+  MapRequestPoint,
+  MapShelterPoint,
+  MapResourcePoint,
+  MapSelection,
+} from "./LiveAidMap";
+import type { GeocodingCandidate } from "../lib/geocoding";
 
-type Urgency = "High" | "Medium" | "Low";
-type RequestStatus = "Pending" | "Approved" | "Allocated" | "Completed";
+const LiveAidMap = dynamic(() => import("./LiveAidMap"), {
+  ssr: false,
+  loading: () => <div className={mapStyles.mapLoading}>Loading map…</div>,
+});
+
+type Urgency = "Critical" | "High" | "Medium" | "Low";
+type RequestStatus =
+  | "Submitted"
+  | "PendingReview"
+  | "Approved"
+  | "Deferred"
+  | "Assigned"
+  | "Fulfilled"
+  | "Rejected";
 type Layer = "req" | "sh" | "res";
-type Selection = { type: Layer; index: number } | null;
-type ViewBox = { x: number; y: number; w: number; h: number };
+type Selection = MapSelection;
 
 type AidRequest = {
-  id: number;
+  id: string;
   cat: string;
-  name: string;
-  lvl: Urgency;
-  sc: number;
+  description: string;
+  address: string | null;
+  createdAt: string;
+  latitude: number | null;
+  longitude: number | null;
+  lvl: Urgency | null;
+  sc: number | null;
   st: RequestStatus;
-  x: number;
-  y: number;
-  area: string;
+};
+
+type ApiAidRequest = {
+  id: string;
+  category: string;
+  description: string;
+  address: string | null;
+  createdAt: string;
+  latitude: number | null;
+  longitude: number | null;
+  urgencyLevel: Urgency | null;
+  urgencyScore: number | null;
+  status: RequestStatus;
 };
 
 type Shelter = {
+  id: string;
   n: string;
   p: number;
   u: number;
   c: number;
-  x: number;
-  y: number;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 type Depot = {
+  id: string;
   n: string;
   item: string;
-  s: "Normal" | "Low stock" | "Critical";
-  x: number;
-  y: number;
+  quantityAvailable: number;
+  description: string | null;
+  latitude: number | null;
+  longitude: number | null;
 };
 
-const initialRequests: AidRequest[] = [
-  { id: 1042, cat: "Temporary shelter", name: "S. Fernando", lvl: "High", sc: 92, st: "Pending", x: 402, y: 222, area: "Old Town" },
-  { id: 1041, cat: "Medicine", name: "K. Rajan", lvl: "High", sc: 84, st: "Approved", x: 292, y: 318, area: "Riverside" },
-  { id: 1040, cat: "Food", name: "N. Perera", lvl: "Medium", sc: 67, st: "Pending", x: 612, y: 222, area: "Temple Hill" },
-  { id: 1039, cat: "Water", name: "M. Rahman", lvl: "High", sc: 88, st: "Allocated", x: 722, y: 148, area: "Temple Hill" },
-  { id: 1038, cat: "Transport", name: "D. Silva", lvl: "Low", sc: 71, st: "Pending", x: 520, y: 318, area: "Old Town" },
-  { id: 1035, cat: "Accessibility help", name: "P. Jayasinghe", lvl: "Medium", sc: 74, st: "Approved", x: 212, y: 196, area: "Lakeside" },
-  { id: 1031, cat: "Food", name: "L. Wickrama", lvl: "Low", sc: 69, st: "Completed", x: 742, y: 372, area: "Harbour" },
-];
+type ApiShelter = {
+  id: string;
+  name: string;
+  capacity: number;
+  currentOccupancy: number;
+  latitude: number | null;
+  longitude: number | null;
+};
 
-const shelters: Shelter[] = [
-  { n: "City Center Shelter", p: 85, u: 255, c: 300, x: 446, y: 262 },
-  { n: "Riverside Hall", p: 54, u: 162, c: 300, x: 262, y: 352 },
-  { n: "Temple Grounds", p: 39, u: 117, c: 300, x: 652, y: 172 },
-  { n: "Harbour Hall", p: 71, u: 142, c: 200, x: 790, y: 402 },
-  { n: "Lakeside Centre", p: 22, u: 44, c: 200, x: 152, y: 166 },
-  { n: "Hilltop School", p: 48, u: 96, c: 200, x: 566, y: 446 },
-];
-
-const depots: Depot[] = [
-  { n: "Central Food Depot", item: "Food", s: "Normal", x: 500, y: 128 },
-  { n: "Medical Store", item: "Medical Kits", s: "Low stock", x: 362, y: 432 },
-  { n: "Water Store", item: "Water", s: "Critical", x: 116, y: 408 },
-];
+type ApiResource = {
+  id: string;
+  name: string;
+  category: string;
+  quantityAvailable: number;
+  description: string | null;
+  latitude: number | null;
+  longitude: number | null;
+};
 
 const urgencyColors: Record<Urgency, string> = {
+  Critical: "#A31D1D",
   High: "#D93025",
   Medium: "#F29900",
   Low: "#1FA463",
 };
 
 const statusClass: Record<RequestStatus, string> = {
-  Pending: "pending",
+  Submitted: "pending",
+  PendingReview: "pending",
   Approved: "approved",
-  Allocated: "allocated",
-  Completed: "completed",
+  Deferred: "deferred",
+  Assigned: "allocated",
+  Fulfilled: "completed",
+  Rejected: "rejected",
 };
 
-const stockClass: Record<Depot["s"], string> = {
-  Normal: "normal",
-  "Low stock": "lowStock",
-  Critical: "critical",
-};
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001"
+).replace(/\/+$/, "");
 
-const initialViewBox: ViewBox = { x: 0, y: 0, w: 900, h: 520 };
+const requestStatuses: RequestStatus[] = [
+  "Submitted",
+  "PendingReview",
+  "Approved",
+  "Deferred",
+  "Assigned",
+  "Fulfilled",
+  "Rejected",
+];
 
-function isDone(request: AidRequest) {
-  return request.st === "Allocated" || request.st === "Completed";
+const urgencyLevels: Urgency[] = ["Critical", "High", "Medium", "Low"];
+const requestStaffRoles = new Set([
+  "Coordinator",
+  "CaseManager",
+  "ResourceManager",
+  "ShelterAdmin",
+  "Admin",
+]);
+
+function isApiAidRequest(value: unknown): value is ApiAidRequest {
+  if (!value || typeof value !== "object") return false;
+  const request = value as Record<string, unknown>;
+  return (
+    typeof request.id === "string" &&
+    typeof request.category === "string" &&
+    typeof request.description === "string" &&
+    typeof request.status === "string" &&
+    requestStatuses.includes(request.status as RequestStatus) &&
+    (request.urgencyLevel === null ||
+      typeof request.urgencyLevel === "string" &&
+        urgencyLevels.includes(request.urgencyLevel as Urgency)) &&
+    (request.urgencyScore === null ||
+      typeof request.urgencyScore === "number") &&
+    (request.latitude === null || typeof request.latitude === "number") &&
+    (request.longitude === null || typeof request.longitude === "number") &&
+    (request.address === null || typeof request.address === "string") &&
+    typeof request.createdAt === "string"
+  );
 }
 
-function getSource(request: AidRequest) {
-  const matchingItem: Record<string, string> = {
-    Medicine: "Medical Kits",
-    Water: "Water",
-    Food: "Food",
-  };
-  if (matchingItem[request.cat]) {
-    return depots.find((depot) => depot.item === matchingItem[request.cat]);
-  }
-  return shelters
-    .filter((shelter) => shelter.p < 80)
-    .sort(
-      (a, b) =>
-        Math.hypot(a.x - request.x, a.y - request.y) -
-        Math.hypot(b.x - request.x, b.y - request.y),
-    )[0];
-}
-
-function clampViewBox(viewBox: ViewBox): ViewBox {
-  const w = Math.max(300, Math.min(900, viewBox.w));
-  const h = (w * 520) / 900;
+function mapApiRequest(request: ApiAidRequest): AidRequest {
   return {
-    x: Math.max(-40, Math.min(940 - w, viewBox.x)),
-    y: Math.max(-30, Math.min(550 - h, viewBox.y)),
-    w,
-    h,
+    id: request.id,
+    cat: request.category,
+    description: request.description,
+    address: request.address,
+    createdAt: request.createdAt,
+    latitude: request.latitude,
+    longitude: request.longitude,
+    lvl: request.urgencyLevel,
+    sc: request.urgencyScore,
+    st: request.status,
   };
+}
+
+function isApiShelter(value: unknown): value is ApiShelter {
+  if (!value || typeof value !== "object") return false;
+  const shelter = value as Record<string, unknown>;
+  return (
+    typeof shelter.id === "string" &&
+    typeof shelter.name === "string" &&
+    typeof shelter.capacity === "number" &&
+    typeof shelter.currentOccupancy === "number" &&
+    (shelter.latitude === null || typeof shelter.latitude === "number") &&
+    (shelter.longitude === null || typeof shelter.longitude === "number")
+  );
+}
+
+function isApiResource(value: unknown): value is ApiResource {
+  if (!value || typeof value !== "object") return false;
+  const resource = value as Record<string, unknown>;
+  return (
+    typeof resource.id === "string" &&
+    typeof resource.name === "string" &&
+    typeof resource.category === "string" &&
+    typeof resource.quantityAvailable === "number" &&
+    (resource.description === null || typeof resource.description === "string") &&
+    (resource.latitude === null || typeof resource.latitude === "number") &&
+    (resource.longitude === null || typeof resource.longitude === "number")
+  );
+}
+
+function mapApiShelters(rows: ApiShelter[]): Shelter[] {
+  return rows.map((shelter) => ({
+    id: shelter.id,
+    n: shelter.name,
+    p:
+      shelter.capacity > 0
+        ? Math.round((shelter.currentOccupancy / shelter.capacity) * 100)
+        : 0,
+    u: shelter.currentOccupancy,
+    c: shelter.capacity,
+    latitude: shelter.latitude,
+    longitude: shelter.longitude,
+  }));
+}
+
+function mapResources(rows: ApiResource[]): Depot[] {
+  return rows.map((resource) => ({
+    id: resource.id,
+    n: resource.name,
+    item: resource.category,
+    quantityAvailable: resource.quantityAvailable,
+    description: resource.description,
+    latitude: resource.latitude,
+    longitude: resource.longitude,
+  }));
+}
+
+function hasValidCoordinates<
+  T extends { latitude: number | null; longitude: number | null },
+>(value: T): value is T & { latitude: number; longitude: number } {
+  return (
+    value.latitude !== null &&
+    value.longitude !== null &&
+    Number.isFinite(value.latitude) &&
+    Number.isFinite(value.longitude) &&
+    value.latitude >= -90 &&
+    value.latitude <= 90 &&
+    value.longitude >= -180 &&
+    value.longitude <= 180
+  );
+}
+
+function distanceKm(
+  latitude1: number,
+  longitude1: number,
+  latitude2: number,
+  longitude2: number,
+) {
+  const earthRadiusKm = 6371;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const deltaLatitude = toRadians(latitude2 - latitude1);
+  const deltaLongitude = toRadians(longitude2 - longitude1);
+  const lat1 = toRadians(latitude1);
+  const lat2 = toRadians(latitude2);
+  const a =
+    Math.sin(deltaLatitude / 2) * Math.sin(deltaLatitude / 2) +
+    Math.cos(lat1) *
+      Math.cos(lat2) *
+      Math.sin(deltaLongitude / 2) *
+      Math.sin(deltaLongitude / 2);
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export default function DashboardPage() {
-  const [requests, setRequests] = useState(initialRequests);
+  const router = useRouter();
+  const accountRole = useSessionRole();
+  const [requests, setRequests] = useState<AidRequest[]>([]);
+  const [requestPage, setRequestPage] = useState(1);
+  const [totalRequestCount, setTotalRequestCount] = useState(0);
+  const [shelters, setShelters] = useState<Shelter[]>([]);
+  const [depots, setDepots] = useState<Depot[]>([]);
+  const [isLoadingRequests, setIsLoadingRequests] = useState(true);
+  const [isLoadingShelters, setIsLoadingShelters] = useState(true);
+  const [isLoadingResources, setIsLoadingResources] = useState(true);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [requestLoadError, setRequestLoadError] = useState("");
+  const [requestActionError, setRequestActionError] = useState("");
+  const [updatingRequestId, setUpdatingRequestId] = useState<string | null>(null);
+  const [shelterLoadError, setShelterLoadError] = useState("");
+  const [resourceLoadError, setResourceLoadError] = useState("");
   const [layers, setLayers] = useState<Record<Layer, boolean>>({
     req: true,
     sh: true,
@@ -135,158 +304,736 @@ export default function DashboardPage() {
   const [urgency, setUrgency] = useState("all");
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState<Selection>(null);
-  const [routes, setRoutes] = useState<{ id: number; source: Shelter | Depot }[]>([]);
-  const [viewBox, setViewBox] = useState(initialViewBox);
-  const [toast, setToast] = useState("");
-  const [showToast, setShowToast] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const mapRef = useRef<SVGSVGElement>(null);
+  const [mapInstance, setMapInstance] = useState<LeafletMapInstance | null>(
+    null,
+  );
+  const [userLocation, setUserLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [locationMessage, setLocationMessage] = useState("");
+  const [locationQuery, setLocationQuery] = useState("");
+  const [geocodingFeedback, setGeocodingFeedback] = useState<{
+    kind: "status" | "error";
+    message: string;
+    details?: string[];
+  } | null>(null);
+  const [geocodingCandidates, setGeocodingCandidates] = useState<
+    GeocodingCandidate[]
+  >([]);
+  const [geocodedLocation, setGeocodedLocation] =
+    useState<MapGeocodedPoint | null>(null);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const geocodingController = useRef<AbortController | null>(null);
   const mapCardRef = useRef<HTMLElement>(null);
-  const dragRef = useRef<{ x: number; y: number; viewX: number; viewY: number } | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const normalizedQuery = query.trim().toLowerCase();
+  const normalizedLocationQuery = locationQuery.trim();
+  const isLocationQueryValid =
+    normalizedLocationQuery.length >= 4 &&
+    normalizedLocationQuery.length <= 300;
 
-  function matches(value: string) {
-    return value.toLowerCase().includes(normalizedQuery);
-  }
+  useEffect(() => {
+    return () => {
+      const controller = geocodingController.current;
+      geocodingController.current = null;
+      controller?.abort();
+    };
+  }, []);
 
-  const visibleRequests = requests
-    .map((request, index) => ({ request, index }))
-    .filter(
-      ({ request }) =>
-        (urgency === "all" || urgency === request.lvl) &&
-        matches(
-          `${request.id} ${request.cat} ${request.name} ${request.area} ${request.lvl} ${request.st}`,
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    const token = window.sessionStorage.getItem("authToken");
+    const role = accountRole;
+
+    if (role === AUTH_SESSION_LOADING) {
+      return () => {
+        active = false;
+        controller.abort();
+      };
+    }
+
+    if (!token || !role) {
+      router.replace("/login");
+      return () => {
+        active = false;
+        controller.abort();
+      };
+    }
+
+    if (role === "Admin") {
+      router.replace("/admin");
+      return () => {
+        active = false;
+        controller.abort();
+      };
+    }
+
+    if (role !== "Citizen" && !requestStaffRoles.has(role)) {
+      router.replace("/portal");
+      return () => {
+        active = false;
+        controller.abort();
+      };
+    }
+
+    async function loadRequests() {
+      try {
+        const requestPath =
+          role === "Citizen"
+            ? `/api/requests/mine?page=${requestPage}&pageSize=100`
+            : `/api/requests?page=${requestPage}&pageSize=100`;
+        const response = await fetch(`${API_BASE_URL}${requestPath}`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+
+        if (response.status === 401) {
+          clearSessionCredentials();
+          setIsRedirecting(true);
+          router.replace("/login");
+          return;
+        }
+
+        const responseText = await response.text();
+        let responseBody: unknown;
+        if (responseText) {
+          try {
+            responseBody = JSON.parse(responseText);
+          } catch {
+            if (response.ok) {
+              throw new Error("The server returned an invalid requests response.");
+            }
+          }
+        }
+
+        if (!response.ok) {
+          let message: string | undefined;
+          if (responseBody && typeof responseBody === "object") {
+            const body = responseBody as {
+              detail?: unknown;
+              message?: unknown;
+              title?: unknown;
+            };
+            const errorMessage = body.detail ?? body.message ?? body.title;
+            if (typeof errorMessage === "string") message = errorMessage;
+          }
+          throw new Error(
+            message ||
+              `Unable to load requests (${response.status} ${response.statusText}).`,
+          );
+        }
+
+        if (!responseBody || typeof responseBody !== "object") {
+          throw new Error("The server returned an invalid requests response.");
+        }
+        const items = (responseBody as { items?: unknown }).items;
+        const totalCount = (responseBody as { totalCount?: unknown }).totalCount;
+        if (
+          !Array.isArray(items) ||
+          !items.every(isApiAidRequest) ||
+          typeof totalCount !== "number"
+        ) {
+          throw new Error("The server returned requests in an unexpected format.");
+        }
+
+        if (active) {
+          setRequests(items.map(mapApiRequest));
+          setTotalRequestCount(totalCount);
+          setRequestLoadError("");
+        }
+      } catch (error) {
+        if (
+          active &&
+          !(error instanceof DOMException && error.name === "AbortError")
+        ) {
+          setRequestLoadError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load requests. Please try again.",
+          );
+        }
+      } finally {
+        if (active) setIsLoadingRequests(false);
+      }
+    }
+
+    void loadRequests();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [accountRole, requestPage, router]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    const token = window.sessionStorage.getItem("authToken");
+
+    if (
+      accountRole === AUTH_SESSION_LOADING ||
+      !token ||
+      !accountRole ||
+      (accountRole !== "Citizen" && !requestStaffRoles.has(accountRole))
+    ) {
+      return () => {
+        active = false;
+        controller.abort();
+      };
+    }
+
+    async function loadShelters() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/shelters`, {
+          signal: controller.signal,
+        });
+        const body: unknown = await response.json().catch(() => undefined);
+        if (!response.ok) {
+          throw new Error(`Unable to load shelters (${response.status}).`);
+        }
+        if (!Array.isArray(body) || !body.every(isApiShelter)) {
+          throw new Error("The server returned shelters in an unexpected format.");
+        }
+        if (active) {
+          setShelters(mapApiShelters(body));
+          setShelterLoadError("");
+        }
+      } catch (loadError) {
+        if (active && !(loadError instanceof DOMException && loadError.name === "AbortError")) {
+          setShelterLoadError(
+            loadError instanceof Error ? loadError.message : "Unable to load shelters.",
+          );
+        }
+      } finally {
+        if (active) setIsLoadingShelters(false);
+      }
+    }
+
+    async function loadResources() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/resources`, {
+          signal: controller.signal,
+        });
+        const body: unknown = await response.json().catch(() => undefined);
+        if (!response.ok) {
+          throw new Error(`Unable to load resources (${response.status}).`);
+        }
+        if (!Array.isArray(body) || !body.every(isApiResource)) {
+          throw new Error("The server returned resources in an unexpected format.");
+        }
+        if (active) {
+          setDepots(mapResources(body));
+          setResourceLoadError("");
+        }
+      } catch (loadError) {
+        if (active && !(loadError instanceof DOMException && loadError.name === "AbortError")) {
+          setResourceLoadError(
+            loadError instanceof Error ? loadError.message : "Unable to load resources.",
+          );
+        }
+      } finally {
+        if (active) setIsLoadingResources(false);
+      }
+    }
+
+    void loadShelters();
+    void loadResources();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [accountRole]);
+
+  const visibleRequests = useMemo(
+    () =>
+      requests
+        .filter(
+          (request) =>
+        (urgency === "all" ||
+          (urgency === "unassessed"
+            ? request.lvl === null
+            : urgency === request.lvl)) &&
+        `${request.id} ${request.cat} ${request.description} ${request.address ?? ""} ${request.lvl ?? ""} ${request.st}`
+          .toLowerCase()
+          .includes(normalizedQuery),
         ),
-    );
-
-  const matchingShelters = shelters.filter((shelter) => matches(shelter.n));
-  const matchingDepots = depots.filter((depot) =>
-    matches(`${depot.n} ${depot.item}`),
+    [requests, urgency, normalizedQuery],
+  );
+  const matchingShelters = useMemo(
+    () =>
+      shelters
+        .map((shelter, index) => ({ shelter, index }))
+        .filter(({ shelter }) =>
+          shelter.n.toLowerCase().includes(normalizedQuery),
+        ),
+    [shelters, normalizedQuery],
+  );
+  const mapRequests = useMemo<MapRequestPoint[]>(
+    () =>
+      accountRole !== "Citizen" && layers.req
+        ? visibleRequests.flatMap((request) => {
+            if (!hasValidCoordinates(request)) return [];
+            return [
+              {
+                id: request.id,
+                category: request.cat,
+                address: request.address,
+                latitude: request.latitude,
+                longitude: request.longitude,
+                urgency: request.lvl,
+                status: request.st,
+              },
+            ];
+          })
+        : [],
+    [accountRole, layers.req, visibleRequests],
+  );
+  const mapShelterPoints = useMemo<MapShelterPoint[]>(
+    () =>
+      layers.sh
+        ? matchingShelters
+            .flatMap(({ shelter }) => {
+              if (!hasValidCoordinates(shelter)) return [];
+              if (
+                accountRole === "Citizen" &&
+                userLocation &&
+                distanceKm(
+                  userLocation.latitude,
+                  userLocation.longitude,
+                  shelter.latitude,
+                  shelter.longitude,
+                ) > 50
+              ) {
+                return [];
+              }
+              return [
+                {
+                  id: shelter.id,
+                  name: shelter.n,
+                  latitude: shelter.latitude,
+                  longitude: shelter.longitude,
+                  currentOccupancy: shelter.u,
+                  capacity: shelter.c,
+                },
+              ];
+            })
+        : [],
+    [accountRole, layers.sh, matchingShelters, userLocation],
+  );
+  const mapResourcePoints = useMemo<MapResourcePoint[]>(
+    () =>
+      accountRole === "Citizen" && layers.res
+        ? depots.flatMap((resource) => {
+            if (!hasValidCoordinates(resource)) return [];
+            if (
+              userLocation &&
+              distanceKm(
+                userLocation.latitude,
+                userLocation.longitude,
+                resource.latitude,
+                resource.longitude,
+              ) > 50
+            ) {
+              return [];
+            }
+            return [
+              {
+                id: resource.id,
+                name: resource.n,
+                category: resource.item,
+                quantityAvailable: resource.quantityAvailable,
+                latitude: resource.latitude,
+                longitude: resource.longitude,
+              },
+            ];
+          })
+        : [],
+    [accountRole, depots, layers.res, userLocation],
   );
   const selectedRequest =
-    selection?.type === "req" ? requests[selection.index] : undefined;
+    selection?.type === "request"
+      ? requests.find((request) => request.id === selection.id)
+      : undefined;
   const selectedShelter =
-    selection?.type === "sh" ? shelters[selection.index] : undefined;
+    selection?.type === "shelter"
+      ? shelters.find((shelter) => shelter.id === selection.id)
+      : undefined;
   const selectedDepot =
-    selection?.type === "res" ? depots[selection.index] : undefined;
+    selection?.type === "resource"
+      ? depots.find((resource) => resource.id === selection.id)
+      : undefined;
+  const urgentRequestCount = requests.filter(
+    (request) => request.lvl === "Critical" || request.lvl === "High",
+  ).length;
+  const activeRequestCount = requests.filter(
+    (request) => request.st !== "Fulfilled" && request.st !== "Rejected",
+  ).length;
+  const urgencyCounts = urgencyLevels.map((level) => ({
+    level,
+    count: requests.filter((request) => request.lvl === level).length,
+  }));
+  const mediumRequestCount =
+    urgencyCounts.find(({ level }) => level === "Medium")?.count ?? 0;
+  const lowRequestCount =
+    urgencyCounts.find(({ level }) => level === "Low")?.count ?? 0;
+  const unassessedRequestCount = requests.filter(
+    (request) => request.lvl === null,
+  ).length;
+  const totalShelterCapacity = shelters.reduce((total, shelter) => total + shelter.c, 0);
+  const totalShelterOccupancy = shelters.reduce((total, shelter) => total + shelter.u, 0);
+  const shelterOccupancyRate =
+    totalShelterCapacity > 0
+      ? Math.round((totalShelterOccupancy / totalShelterCapacity) * 100)
+      : 0;
+  const totalResourceQuantity = depots.reduce(
+    (total, resource) => total + resource.quantityAvailable,
+    0,
+  );
+  const needsReviewCount = requests.filter(
+    (request) => request.st === "Submitted" || request.st === "PendingReview",
+  ).length;
 
-  function notify(message: string) {
-    setToast(message);
-    setShowToast(true);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setShowToast(false), 3600);
+  function signOut() {
+    clearSessionCredentials();
+    router.replace("/login");
   }
 
-  function zoom(factor: number, centerX?: number, centerY?: number) {
-    setViewBox((current) => {
-      const cx = centerX ?? current.x + current.w / 2;
-      const cy = centerY ?? current.y + current.h / 2;
-      const w = current.w * factor;
-      return clampViewBox({
-        x: cx - (cx - current.x) * (w / current.w),
-        y: cy - (cy - current.y) * (w / current.w),
-        w,
-        h: (w * 520) / 900,
+  async function updateRequest(
+    request: AidRequest,
+    endpoint: "review" | "status",
+    payload: { action?: string; status?: RequestStatus; reason?: string },
+  ) {
+    const token = window.sessionStorage.getItem("authToken");
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    if (payload.action === "Rejected" || payload.action === "Deferred") {
+      const reason = window.prompt("Enter a reason for this decision:");
+      if (!reason?.trim()) return;
+      payload.reason = reason.trim();
+    }
+
+    setUpdatingRequestId(request.id);
+    setRequestActionError("");
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/requests/${request.id}/${endpoint}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      const responseBody: unknown = await response.json().catch(() => undefined);
+      if (response.status === 401) {
+        clearSessionCredentials();
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        const body =
+          responseBody && typeof responseBody === "object"
+            ? (responseBody as { detail?: unknown; title?: unknown })
+            : {};
+        const message = body.detail ?? body.title;
+        throw new Error(
+          typeof message === "string"
+            ? message
+            : `Unable to update request (${response.status}).`,
+        );
+      }
+
+      const updatedStatus =
+        responseBody &&
+        typeof responseBody === "object" &&
+        typeof (responseBody as { status?: unknown }).status === "string"
+          ? (responseBody as { status: string }).status
+          : null;
+      if (!updatedStatus || !requestStatuses.includes(updatedStatus as RequestStatus)) {
+        throw new Error("The server returned an invalid request status.");
+      }
+
+      setRequests((current) =>
+        current.map((item) =>
+          item.id === request.id
+            ? { ...item, st: updatedStatus as RequestStatus }
+            : item,
+        ),
+      );
+    } catch (error) {
+      setRequestActionError(
+        error instanceof Error
+          ? error.message
+          : "Unable to update the request. Please try again.",
+      );
+    } finally {
+      setUpdatingRequestId(null);
+    }
+  }
+
+  function findNearbyPlaces() {
+    if (!navigator.geolocation) {
+      setLocationMessage("Location is not available on this device.");
+      return;
+    }
+
+    setLocationMessage("Finding your location…");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const location = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
+        setUserLocation(location);
+        setLocationMessage("Showing mapped places within 50 km.");
+        mapInstance?.flyTo(
+          [location.latitude, location.longitude],
+          11,
+        );
+      },
+      () => {
+        setLocationMessage(
+          "Location permission was unavailable. Enable GPS and try again.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  }
+
+  async function lookupMapLocation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!isLocationQueryValid) {
+      setGeocodingFeedback({
+        kind: "error",
+        message: "Enter a location between 4 and 300 characters.",
       });
+      return;
+    }
+
+    geocodingController.current?.abort();
+    const controller = new AbortController();
+    geocodingController.current = controller;
+    setIsGeocoding(true);
+    setGeocodingFeedback({
+      kind: "status",
+      message: "Searching for the location…",
+    });
+    setGeocodingCandidates([]);
+    setGeocodedLocation(null);
+
+    try {
+      const accessToken = window.sessionStorage.getItem("authToken") ?? undefined;
+      if (!accessToken) {
+        clearSessionCredentials();
+        setIsRedirecting(true);
+        router.replace("/login");
+        return;
+      }
+      const outcome = await forwardGeocode(normalizedLocationQuery, {
+        accessToken,
+        signal: controller.signal,
+      });
+      if (geocodingController.current !== controller) return;
+
+      if (outcome.kind === "unauthorized") {
+        clearSessionCredentials();
+        setIsRedirecting(true);
+        router.replace("/login");
+      } else if (outcome.kind === "forbidden") {
+        setGeocodingFeedback({
+          kind: "error",
+          message:
+            "You do not have permission to search for locations with this account.",
+        });
+      } else if (
+        outcome.kind === "found" &&
+        outcome.result &&
+        hasValidCoordinates(outcome.result)
+      ) {
+        const label = outcome.result.displayAddress ?? normalizedLocationQuery;
+        setGeocodedLocation({
+          latitude: outcome.result.latitude,
+          longitude: outcome.result.longitude,
+          label,
+        });
+        setGeocodingFeedback({
+          kind: "status",
+          message: `Showing ${label} on the map.`,
+        });
+      } else if (outcome.kind === "ambiguous" && outcome.result) {
+        const candidates = outcome.result.candidates.filter(
+          hasValidCoordinates,
+        );
+        setGeocodingCandidates(candidates);
+        setGeocodingFeedback({
+          kind: candidates.length > 0 ? "status" : "error",
+          message:
+            candidates.length > 0
+              ? "Choose a matching location to preview it on the map."
+              : "The geocoder returned no valid location candidates.",
+        });
+      } else if (outcome.kind === "cancelled") {
+        setGeocodingFeedback({
+          kind: "status",
+          message: outcome.message ?? "Location search cancelled.",
+        });
+      } else {
+        const resultMessage =
+          "result" in outcome ? outcome.result?.errorMessage : null;
+        const details =
+          outcome.kind === "validationError"
+            ? Object.entries(outcome.errors).flatMap(([field, messages]) =>
+                messages.map((message) => `${field}: ${message}`),
+              )
+            : undefined;
+        setGeocodingFeedback({
+          kind: "error",
+          message:
+            outcome.message ??
+            resultMessage ??
+            "The location could not be found. Try a more specific search.",
+          details,
+        });
+      }
+    } catch (error) {
+      if (geocodingController.current === controller) {
+        const wasCancelled =
+          error instanceof DOMException && error.name === "AbortError";
+        setGeocodingFeedback({
+          kind: wasCancelled ? "status" : "error",
+          message: wasCancelled
+            ? "Location search cancelled."
+            : error instanceof Error
+              ? error.message
+              : "Unable to search for this location.",
+        });
+      }
+    } finally {
+      if (geocodingController.current === controller) {
+        geocodingController.current = null;
+        setIsGeocoding(false);
+      }
+    }
+  }
+
+  function cancelMapLocationLookup() {
+    const controller = geocodingController.current;
+    if (!controller) return;
+
+    geocodingController.current = null;
+    controller.abort();
+    setIsGeocoding(false);
+    setGeocodingFeedback({
+      kind: "status",
+      message: "Location search cancelled.",
     });
   }
 
-  function handleMapPointerDown(event: PointerEvent<SVGSVGElement>) {
-    if ((event.target as Element).closest(".mapMarker")) return;
-    dragRef.current = {
-      x: event.clientX,
-      y: event.clientY,
-      viewX: viewBox.x,
-      viewY: viewBox.y,
-    };
-    setIsDragging(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function handleMapPointerMove(event: PointerEvent<SVGSVGElement>) {
-    if (!dragRef.current || !mapRef.current) return;
-    const rect = mapRef.current.getBoundingClientRect();
-    const scale = viewBox.w / rect.width;
-    const drag = dragRef.current;
-    setViewBox(
-      clampViewBox({
-        ...viewBox,
-        x: drag.viewX - (event.clientX - drag.x) * scale,
-        y: drag.viewY - (event.clientY - drag.y) * scale,
-      }),
-    );
-  }
-
-  function handleMapDoubleClick(event: ReactMouseEvent<SVGSVGElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    zoom(
-      0.65,
-      viewBox.x + ((event.clientX - rect.left) / rect.width) * viewBox.w,
-      viewBox.y + ((event.clientY - rect.top) / rect.height) * viewBox.h,
-    );
+  function chooseGeocodingCandidate(candidate: GeocodingCandidate) {
+    if (!hasValidCoordinates(candidate)) {
+      setGeocodingFeedback({
+        kind: "error",
+        message: "This candidate has invalid coordinates.",
+      });
+      return;
+    }
+    setGeocodedLocation({
+      latitude: candidate.latitude,
+      longitude: candidate.longitude,
+      label: candidate.displayAddress,
+    });
+    setGeocodingCandidates([]);
+    setGeocodingFeedback({
+      kind: "status",
+      message: `Showing ${candidate.displayAddress} on the map.`,
+    });
   }
 
   function selectItem(type: Layer, index: number, focusMap = false) {
-    setSelection({ type, index });
+    const item =
+      type === "req"
+        ? requests[index]
+        : type === "sh"
+          ? shelters[index]
+          : depots[index];
+    if (!item) return;
+
+    const selectionType: MapMarkerType =
+      type === "req" ? "request" : type === "sh" ? "shelter" : "resource";
+    setSelection({ type: selectionType, id: item.id });
     setLayers((current) => ({ ...current, [type]: true }));
     if (focusMap) {
-      const item =
-        type === "req"
-          ? requests[index]
-          : type === "sh"
-            ? shelters[index]
-            : depots[index];
-      const w = Math.min(viewBox.w, 560);
-      setViewBox(
-        clampViewBox({
-          x: item.x - w / 2,
-          y: item.y - (w * 520) / 900 / 2 - 10,
-          w,
-          h: (w * 520) / 900,
-        }),
-      );
+      if (hasValidCoordinates(item)) {
+        mapInstance?.flyTo(
+          [item.latitude, item.longitude],
+          Math.max(mapInstance.getZoom(), 12),
+        );
+      }
       mapCardRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   }
 
-  function allocate(index: number) {
-    const request = requests[index];
-    if (isDone(request)) return;
-    const source = getSource(request);
-    if (!source) {
-      notify(`No suitable source is available for request #REQ-${request.id}.`);
-      return;
-    }
-    setRoutes((current) => [...current, { id: request.id, source }]);
-    setRequests((current) =>
-      current.map((item, itemIndex) =>
-        itemIndex === index ? { ...item, st: "Allocated" } : item,
-      ),
-    );
-    selectItem("req", index, true);
-    notify(`Allocation triggered: ${source.n} → #REQ-${request.id}`);
+  function selectMapItem(type: MapMarkerType, id: string) {
+    const layer: Layer =
+      type === "request" ? "req" : type === "shelter" ? "sh" : "res";
+    const index =
+      type === "request"
+        ? requests.findIndex((request) => request.id === id)
+        : type === "shelter"
+          ? shelters.findIndex((shelter) => shelter.id === id)
+          : depots.findIndex((resource) => resource.id === id);
+    if (index >= 0) selectItem(layer, index);
   }
 
   function showAllRequests() {
     setUrgency("all");
     setQuery("");
+    setRequestPage(1);
   }
 
   function toggleLayer(layer: Layer) {
     setLayers((current) => ({ ...current, [layer]: !current[layer] }));
   }
 
-  const requestCount = layers.req ? visibleRequests.length : 0;
-  const shelterCount = layers.sh ? matchingShelters.length : 0;
-  const depotCount = layers.res ? matchingDepots.length : 0;
+  const totalRequestPages = Math.max(1, Math.ceil(totalRequestCount / 100));
+  const mapLoading =
+    (accountRole !== "Citizen" && layers.req && isLoadingRequests) ||
+    (layers.sh && isLoadingShelters) ||
+    (accountRole === "Citizen" && layers.res && isLoadingResources);
+  const mapError = [
+    accountRole !== "Citizen" && layers.req ? requestLoadError : "",
+    layers.sh ? shelterLoadError : "",
+    accountRole === "Citizen" && layers.res ? resourceLoadError : "",
+  ].filter(Boolean).join(" ");
   const countText = [
-    layers.req ? `${requestCount} requests` : "",
-    layers.sh ? `${shelterCount} shelters` : "",
-    layers.res ? `${depotCount} depots` : "",
+    accountRole !== "Citizen" && layers.req
+      ? `${mapRequests.length} mapped requests (page ${requestPage} of ${totalRequestPages})`
+      : "",
+    layers.sh ? `${mapShelterPoints.length} mapped shelters` : "",
+    accountRole === "Citizen" && layers.res
+      ? `${mapResourcePoints.length} mapped resources`
+      : "",
   ]
     .filter(Boolean)
     .join(" · ");
+
+  if (isLoadingRequests || isRedirecting) {
+    return (
+      <main className={styles.page}>
+        <p className={styles.wrap} role="status">
+          {isRedirecting ? "Redirecting to login…" : "Loading your requests…"}
+        </p>
+      </main>
+    );
+  }
 
   return (
     <div className={styles.page}>
@@ -305,8 +1052,10 @@ export default function DashboardPage() {
           <nav className={styles.tabs} aria-label="Main">
             <Link className={styles.activeTab} href="/dashboard">Dashboard</Link>
             <Link href="#queue">Requests</Link>
-            <Link href="#map-card">Shelters &amp; Resources</Link>
-            <Link href="#queue">Donors &amp; Volunteers</Link>
+            {requestStaffRoles.has(accountRole) && <Link href="#map-card">Staff Map</Link>}
+            {accountRole === "Citizen" && <Link href="#map-card">Nearby Map</Link>}
+            <Link href="#shelters-resources">Shelters &amp; Resources</Link>
+            <Link href="/portal">Account</Link>
           </nav>
           <label className={styles.search}>
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -321,180 +1070,728 @@ export default function DashboardPage() {
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
-          <button
-            className={styles.bell}
-            type="button"
-            aria-label="Notifications"
-            onClick={() => notify("You’re all caught up on notifications.")}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 21h4" />
-            </svg>
-            <i />
+          <div className={styles.avatar} aria-label={`${accountRole} account`}>
+            {accountRole.slice(0, 2).toUpperCase()}
+          </div>
+          <span className={styles.role}>{accountRole}</span>
+          <button className={styles.button} type="button" onClick={signOut}>
+            Sign out
           </button>
-          <div className={styles.avatar} aria-label="Coordinator initials">CO</div>
-          <span className={styles.role}>Coordinator</span>
         </div>
       </header>
 
       <main className={styles.wrap} id="top">
         <section className={styles.kpis} aria-label="Key figures">
           <article className={styles.card}>
-            <div className={styles.kpiHeading}><span className={styles.kpiIcon}><DocumentIcon /></span>Assistance Requests<span className={`${styles.tag} ${styles.redTag}`}>34 urgent</span></div>
-            <div className={styles.big}>128</div><div className={styles.small}>Total active requests</div>
-            <div className={styles.segment}><i /><i /><i /></div>
-            <div className={styles.legend}><span className={styles.highDot}>High 34</span><span className={styles.mediumDot}>Medium 61</span><span className={styles.lowDot}>Low 33</span></div>
+            <div className={styles.kpiHeading}><span className={styles.kpiIcon}><DocumentIcon /></span>{accountRole === "Citizen" ? "My Requests" : "Requests"}<span className={`${styles.tag} ${styles.redTag}`}>{urgentRequestCount} urgent</span></div>
+            <div className={styles.big}>{activeRequestCount}</div><div className={styles.small}>Active requests on this page</div>
+            <div className={styles.segment}>
+              <i style={{ flex: urgentRequestCount }} />
+              <i style={{ flex: mediumRequestCount }} />
+              <i style={{ flex: lowRequestCount }} />
+            </div>
+            <div className={styles.legend}>
+              {urgencyCounts.filter(({ count }) => count > 0).map(({ level, count }) => (
+                <span className={level === "Critical" || level === "High" ? styles.highDot : level === "Medium" ? styles.mediumDot : styles.lowDot} key={level}>
+                  {level} {count}
+                </span>
+              ))}
+              {unassessedRequestCount > 0 && <span>{`Not assessed ${unassessedRequestCount}`}</span>}
+            </div>
           </article>
           <article className={styles.card}>
             <div className={styles.kpiHeading}><span className={styles.kpiIcon}><ShelterIcon /></span>Shelters</div>
-            <div className={styles.big}>17</div><div className={styles.small}>842 of 1,240 capacity used</div>
-            <div className={styles.bar}><i style={{ width: "68%" }} /></div><div className={styles.row}><span>Occupancy rate</span><b>68%</b></div>
+            <div className={styles.big}>{isLoadingShelters ? "…" : shelterLoadError ? "—" : shelters.length}</div>
+            <div className={styles.small}>{shelterLoadError || (isLoadingShelters ? "Loading shelter data…" : `${totalShelterOccupancy} of ${totalShelterCapacity} capacity used`)}</div>
+            <div className={styles.bar}><i style={{ width: `${isLoadingShelters || shelterLoadError ? 0 : shelterOccupancyRate}%` }} /></div><div className={styles.row}><span>Occupancy rate</span><b>{isLoadingShelters ? "…" : shelterLoadError ? "—" : `${shelterOccupancyRate}%`}</b></div>
           </article>
           <article className={styles.card}>
             <div className={styles.kpiHeading}><span className={styles.kpiIcon}><BoxIcon /></span>Resources</div>
-            <div className={styles.big}>3,640</div><div className={styles.small}>Available inventory items</div>
-            <div className={styles.kpiBadges}><span className={`${styles.tag} ${styles.amberTag}`}>4 low-stock</span><span className={`${styles.tag} ${styles.redTag}`}>Water critical</span></div>
+            <div className={styles.big}>{isLoadingResources ? "…" : resourceLoadError ? "—" : totalResourceQuantity.toLocaleString()}</div>
+            <div className={styles.small}>{resourceLoadError || (isLoadingResources ? "Loading inventory…" : `${depots.length} inventory records`)}</div>
+            {resourceLoadError && <div className={styles.kpiBadges}><span className={`${styles.tag} ${styles.amberTag}`}>Inventory unavailable</span></div>}
           </article>
           <article className={styles.card}>
-            <div className={styles.kpiHeading}><span className={styles.kpiIcon}><BellIcon /></span>System Alerts</div>
-            <div className={styles.big}>312</div><div className={styles.small}>Notifications sent</div>
-            <div className={styles.delivery}><div><div className={styles.deliveryLabel}>Delivery success</div><b>98.4%</b></div><div className={styles.miniBars} aria-hidden="true">{[40, 55, 48, 70, 58, 85, 68].map((height, index) => <i key={index} style={{ height: `${height}%` }} />)}</div></div>
+            <div className={styles.kpiHeading}><span className={styles.kpiIcon}><BellIcon /></span>Needs review</div>
+            <div className={styles.big}>{needsReviewCount}</div><div className={styles.small}>Requests awaiting staff review</div>
+            <div className={styles.kpiBadges}><span className={`${styles.tag} ${needsReviewCount > 0 ? styles.amberTag : styles.normal}`}>{needsReviewCount > 0 ? "Review required" : "All reviewed"}</span></div>
           </article>
         </section>
 
-        <section className={styles.card} id="map-card" aria-labelledby="map-title" ref={mapCardRef}>
-          <div className={styles.mapHeading}>
-            <h2 id="map-title">Live Aid Map</h2>
-            <div className={styles.chips} role="group" aria-label="Map layers">
-              {([["req", "Requests"], ["sh", "Shelters"], ["res", "Resources"]] as const).map(([layer, label]) => (
-                <button className={styles.chip} key={layer} type="button" aria-pressed={layers[layer]} onClick={() => toggleLayer(layer)}><span />{label}</button>
-              ))}
-            </div>
-            <select className={styles.select} aria-label="Filter requests by urgency" value={urgency} onChange={(event) => setUrgency(event.target.value)}>
-              <option value="all">All urgency levels</option><option>High</option><option>Medium</option><option>Low</option>
-            </select>
-            <span className={styles.count} aria-live="polite">{countText}</span>
-          </div>
-          <div className={styles.mapBox}>
-            <svg
-              ref={mapRef}
-              className={`${styles.map} ${isDragging ? styles.dragging : ""}`}
-              viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
-              role="group"
-              aria-label="Schematic map of requests, shelters and resource depots"
-              onPointerDown={handleMapPointerDown}
-              onPointerMove={handleMapPointerMove}
-              onPointerUp={() => { dragRef.current = null; setIsDragging(false); }}
-              onPointerCancel={() => { dragRef.current = null; setIsDragging(false); }}
-              onDoubleClick={handleMapDoubleClick}
-            >
-              <rect x="-200" y="-200" width="1400" height="960" fill="#EAF6EE" />
-              <g fill="#D3EDDC"><path d="M560 20c60-20 140 0 170 40s-20 70-90 70-120-40-80-110z" /><path d="M40 440c60-30 150-20 200 20s0 70-80 70-150-30-120-90z" /><path d="M690 410c50-30 130-20 150 30s-30 80-100 70-90-60-50-100z" /></g>
-              <ellipse cx="140" cy="86" rx="100" ry="52" fill="#CFE8F0" />
-              <path d="M-40 405C90 340 200 400 310 345S520 285 630 340 800 310 960 335" fill="none" stroke="#BFE3EE" strokeWidth="30" strokeLinecap="round" />
-              <path d="M-40 405C90 340 200 400 310 345S520 285 630 340 800 310 960 335" fill="none" stroke="#D9F0F6" strokeWidth="12" strokeLinecap="round" />
-              <g fill="none" stroke="#fff" strokeWidth="9" strokeLinecap="round"><path d="M0 230C160 250 300 190 450 250S740 210 900 250" /><path d="M450 -10C430 120 470 190 450 250S430 420 470 540" /><path d="M180 -10C200 100 160 200 220 300" /><path d="M700 -10C720 100 650 180 690 300S760 440 740 540" /><path d="M0 120C120 140 240 100 330 130" /></g>
-              <g fill="none" stroke="#fff" strokeWidth="3" opacity=".9"><path d="M380 200h140M380 250h140M380 300h140M400 180v140M450 180v140M500 180v140M560 90l120 60M590 60l120 60" /></g>
-              <g fontFamily="Inter,sans-serif" fontSize="12" fontWeight="700" letterSpacing="2" fill="#6B8F7B" opacity=".85"><text x="395" y="172">OLD TOWN</text><text x="205" y="372">RIVERSIDE</text><text x="590" y="88">TEMPLE HILL</text><text x="740" y="440">HARBOUR</text><text x="70" y="64">LAKESIDE</text></g>
-              <g fill="none" stroke="#1B6B47" strokeWidth="4" strokeLinecap="round">
-                {routes.map(({ id, source }) => {
-                  const request = requests.find((item) => item.id === id);
-                  if (!request) return null;
-                  return <path className={styles.route} key={id} d={`M${source.x} ${source.y}Q${(source.x + request.x) / 2} ${Math.min(source.y, request.y) - 60} ${request.x} ${request.y - 14}`} />;
-                })}
-              </g>
-              {layers.res && <g>{matchingDepots.map((depot) => {
-                const index = depots.indexOf(depot);
-                const color = depot.s === "Normal" ? "#1FA463" : depot.s === "Low stock" ? "#F29900" : "#D93025";
-                const selected = selection?.type === "res" && selection.index === index;
-                return <g className="mapMarker" key={depot.n} transform={`translate(${depot.x} ${depot.y})`} role="button" tabIndex={0} aria-label={`${depot.n}, ${depot.item} ${depot.s}`} onClick={() => selectItem("res", index)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectItem("res", index); } }}>
-                  {selected && <circle className={styles.pulse} r="20" fill={color} opacity=".5" />}
-                  <rect x="-14" y="-14" width="28" height="28" rx="7" transform="rotate(45)" fill={color} stroke="#fff" strokeWidth={selected ? 4 : 3} />
-                  <path d="M-6 -2h12v9h-12zM-6 -2l3-4h6l3 4" fill="none" stroke="#fff" strokeWidth="2" strokeLinejoin="round" />
-                  <title>{depot.n}</title>
-                </g>;
-              })}</g>}
-              {layers.sh && <g>{matchingShelters.map((shelter) => {
-                const index = shelters.indexOf(shelter);
-                const color = shelter.p >= 80 ? "#D93025" : "#1B6B47";
-                const selected = selection?.type === "sh" && selection.index === index;
-                return <g className="mapMarker" key={shelter.n} transform={`translate(${shelter.x} ${shelter.y})`} role="button" tabIndex={0} aria-label={`${shelter.n}, ${shelter.p}% full`} onClick={() => selectItem("sh", index)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectItem("sh", index); } }}>
-                  {selected && <circle className={styles.pulse} r="20" fill={color} opacity=".5" />}
-                  <rect x="-16" y="-16" width="32" height="32" rx="10" fill={color} stroke="#fff" strokeWidth={selected ? 4 : 3} />
-                  <path d="M-8 1L0-7L8 1V9H-8Z" fill="#fff" /><rect x="-2" y="3" width="4" height="6" fill={color} />
-                  <rect x="-20" y="19" width="40" height="17" rx="8.5" fill="#fff" stroke={color} strokeWidth="2" /><text y="31.5" textAnchor="middle" fontFamily="Inter,sans-serif" fontSize="10.5" fontWeight="800" fill={color}>{shelter.p}%</text>
-                  <title>{shelter.n}</title>
-                </g>;
-              })}</g>}
-              {layers.req && <g>{visibleRequests.map(({ request, index }) => {
-                const color = urgencyColors[request.lvl];
-                const selected = selection?.type === "req" && selection.index === index;
-                return <g className="mapMarker" key={request.id} transform={`translate(${request.x} ${request.y})`} role="button" tabIndex={0} aria-label={`Request #REQ-${request.id}, ${request.cat}, ${request.lvl} urgency`} onClick={() => selectItem("req", index)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectItem("req", index); } }}>
-                  {selected && <circle className={styles.pulse} r="14" fill={color} opacity=".5" />}
-                  <ellipse cy="1" rx="8" ry="3" fill="#000" opacity=".18" />
-                  <path d="M0 0C-5-10-16-18-16-30a16 16 0 0 1 32 0C16-18 5-10 0 0z" fill={color} stroke="#fff" strokeWidth={selected ? 4 : 2.5} />
-                  <circle cy="-30" r="6" fill="#fff" /><title>{`Request #REQ-${request.id}`}</title>
-                </g>;
-              })}</g>}
-            </svg>
-            <div className={styles.zoom}>
-              <button type="button" aria-label="Zoom in" onClick={() => zoom(0.7)}>+</button>
-              <button type="button" aria-label="Zoom out" onClick={() => zoom(1.4)}>−</button>
-              <button type="button" aria-label="Reset map view" onClick={() => setViewBox(initialViewBox)}>↻</button>
-            </div>
-            <div className={styles.mapKey}><span><i className={styles.keyHigh} />High</span><span><i className={styles.keyMedium} />Medium</span><span><i className={styles.keyLow} />Low request</span><span><i className={styles.keyShelter} />Shelter</span><span><i className={styles.keyDepot} />Resource depot</span></div>
-            {selection && (
-              <div className={styles.info} role="dialog" aria-label="Map item details">
-                <button className={styles.closeInfo} type="button" aria-label="Close details" onClick={() => setSelection(null)}>×</button>
-                {selectedRequest && <><h3>#REQ-{selectedRequest.id} · {selectedRequest.cat}</h3><p>{selectedRequest.area} · {selectedRequest.name}</p><dl><div><dt>AI urgency</dt><dd><span className={`${styles.pill} ${styles[urgencyClass(selectedRequest.lvl)]}`}>{selectedRequest.lvl} · {selectedRequest.sc}%</span></dd></div><div><dt>Status</dt><dd><span className={`${styles.pill} ${styles[statusClass[selectedRequest.st]]}`}>{selectedRequest.st}</span></dd></div><div><dt>Suggested source</dt><dd>{getSource(selectedRequest)?.n ?? "—"}</dd></div></dl><div className={styles.infoActions}><button className={`${styles.button} ${styles.primaryButton}`} type="button" disabled={isDone(selectedRequest)} onClick={() => allocate(selection.index)}>Trigger Allocation</button></div></>}
-                {selectedShelter && <><h3>{selectedShelter.n}</h3><p>Shelter</p><dl><div><dt>Occupancy</dt><dd><span className={`${styles.pill} ${selectedShelter.p >= 80 ? styles.high : styles.low}`}>{selectedShelter.p}% full</span></dd></div><div><dt>Beds used</dt><dd>{selectedShelter.u} of {selectedShelter.c}</dd></div><div><dt>Open requests nearby</dt><dd>{requests.filter((request) => Math.hypot(request.x - selectedShelter.x, request.y - selectedShelter.y) < 230 && request.st !== "Completed").length}</dd></div></dl><div className={`${styles.bar} ${selectedShelter.p >= 80 ? styles.redBar : ""}`}><i style={{ width: `${selectedShelter.p}%` }} /></div></>}
-                {selectedDepot && <><h3>{selectedDepot.n}</h3><p>Resource depot</p><dl><div><dt>Item</dt><dd>{selectedDepot.item}</dd></div><div><dt>Stock level</dt><dd><span className={`${styles.pill} ${styles[stockClass[selectedDepot.s]]}`}>{selectedDepot.s}</span></dd></div></dl></>}
+        {(accountRole === "Citizen" || requestStaffRoles.has(accountRole)) && (
+          <section
+            className={styles.card}
+            id="map-card"
+            aria-labelledby="map-title"
+            ref={mapCardRef}
+          >
+            <div className={styles.mapHeading}>
+              <h2 id="map-title">
+                {accountRole === "Citizen"
+                  ? "Nearby Shelters & Resources"
+                  : "Staff Aid Map"}
+              </h2>
+              <div className={styles.chips} role="group" aria-label="Map layers">
+                {(
+                  accountRole === "Citizen"
+                    ? [
+                        ["sh", "Shelters"],
+                        ["res", "Resources"],
+                      ] as const
+                    : [
+                        ["req", "Requests"],
+                        ["sh", "Shelters"],
+                      ] as const
+                ).map(([layer, label]) => (
+                  <button
+                    className={styles.chip}
+                    key={layer}
+                    type="button"
+                    aria-pressed={layers[layer]}
+                    onClick={() => toggleLayer(layer)}
+                  >
+                    <span />
+                    {label}
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
-          <p className={styles.note}>Schematic map with sample data. Drag to pan, use the buttons to zoom, and select any marker or request ID for details.</p>
-        </section>
+              {accountRole === "Citizen" ? (
+                <button
+                  className={styles.button}
+                  type="button"
+                  onClick={findNearbyPlaces}
+                >
+                  Use my location
+                </button>
+              ) : (
+                <select
+                  className={styles.select}
+                  aria-label="Filter requests by urgency"
+                  value={urgency}
+                  onChange={(event) => setUrgency(event.target.value)}
+                >
+                  <option value="all">All urgency levels</option>
+                  <option>Critical</option>
+                  <option>High</option>
+                  <option>Medium</option>
+                  <option>Low</option>
+                  <option value="unassessed">Not assessed</option>
+                </select>
+              )}
+              <span className={styles.count} aria-live="polite">
+                {accountRole === "Citizen"
+                  ? locationMessage ||
+                    `${mapShelterPoints.length} shelters · ${mapResourcePoints.length} resources`
+                  : layers.req && requestLoadError
+                  ? "Requests unavailable"
+                  : countText || "No map layers selected"}
+              </span>
+            </div>
+            <form
+              className={mapStyles.locationLookup}
+              onSubmit={lookupMapLocation}
+            >
+              <label
+                className={mapStyles.lookupLabel}
+                htmlFor="map-location-query"
+              >
+                Preview a searched location
+              </label>
+              <div className={mapStyles.lookupRow}>
+                <input
+                  id="map-location-query"
+                  className={mapStyles.lookupInput}
+                  type="search"
+                  value={locationQuery}
+                  maxLength={300}
+                  disabled={isGeocoding}
+                  aria-invalid={
+                    locationQuery.length > 0 && !isLocationQueryValid
+                  }
+                  aria-describedby={
+                    geocodingFeedback?.details?.length
+                      ? "map-location-query-hint map-location-query-errors"
+                      : "map-location-query-hint"
+                  }
+                  placeholder="Enter an address or place"
+                  onChange={(event) => {
+                    setLocationQuery(event.target.value);
+                    setGeocodingFeedback(null);
+                    setGeocodingCandidates([]);
+                    setGeocodedLocation(null);
+                  }}
+                />
+                <button
+                  className={mapStyles.lookupButton}
+                  type="submit"
+                  disabled={isGeocoding || !isLocationQueryValid}
+                >
+                  {isGeocoding ? "Searching…" : "Find location"}
+                </button>
+                {isGeocoding && (
+                  <button
+                    className={mapStyles.cancelButton}
+                    type="button"
+                    onClick={cancelMapLocationLookup}
+                  >
+                    Cancel
+                  </button>
+                )}
+                {geocodedLocation && (
+                  <button
+                    className={mapStyles.clearButton}
+                    type="button"
+                    onClick={() => {
+                      setGeocodedLocation(null);
+                      setGeocodingFeedback({
+                        kind: "status",
+                        message: "Location preview cleared.",
+                      });
+                    }}
+                  >
+                    Clear preview
+                  </button>
+                )}
+              </div>
+              <p
+                id="map-location-query-hint"
+                className={mapStyles.lookupHint}
+                aria-live="polite"
+              >
+                {isLocationQueryValid
+                  ? "Search accepts 4-300 characters."
+                  : "Enter a location between 4 and 300 characters."}
+              </p>
+              {geocodingFeedback?.kind === "error" && (
+                <div className={mapStyles.lookupError} role="alert">
+                  <p className={mapStyles.lookupMessage}>
+                    {geocodingFeedback.message}
+                  </p>
+                  {geocodingFeedback.details &&
+                    geocodingFeedback.details.length > 0 && (
+                      <ul
+                        id="map-location-query-errors"
+                        className={mapStyles.lookupErrorDetails}
+                      >
+                        {geocodingFeedback.details.map((detail, index) => (
+                          <li key={`${detail}-${index}`}>{detail}</li>
+                        ))}
+                      </ul>
+                    )}
+                </div>
+              )}
+              {geocodingFeedback?.kind === "status" && (
+                <p
+                  className={mapStyles.lookupMessage}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {geocodingFeedback.message}
+                </p>
+              )}
+              {geocodingCandidates.length > 0 && (
+                <ul
+                  className={mapStyles.candidateList}
+                  aria-label="Matching locations"
+                >
+                  {geocodingCandidates.map((candidate, index) => (
+                    <li key={`${candidate.latitude},${candidate.longitude},${index}`}>
+                      <button
+                        className={mapStyles.candidateButton}
+                        type="button"
+                        onClick={() => chooseGeocodingCandidate(candidate)}
+                      >
+                        {candidate.displayAddress}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </form>
+            <div className={styles.mapBox}>
+              <LiveAidMap
+                mode={accountRole === "Citizen" ? "citizen" : "staff"}
+                requests={mapRequests}
+                shelters={mapShelterPoints}
+                resources={mapResourcePoints}
+                selection={selection}
+                onSelect={selectMapItem}
+                onMapReady={setMapInstance}
+                userLocation={userLocation}
+                geocodedLocation={geocodedLocation}
+                isLoading={mapLoading}
+                error={mapError || null}
+                emptyMessage={
+                  accountRole === "Citizen"
+                    ? "No nearby mapped shelters or resources are available."
+                    : "No visible requests or shelters have saved map coordinates."
+                }
+              />
+              {selection && (
+                <div className={styles.info} role="dialog" aria-label="Map item details">
+                  <button
+                    className={styles.closeInfo}
+                    type="button"
+                    aria-label="Close details"
+                    onClick={() => setSelection(null)}
+                  >
+                    ×
+                  </button>
+                  {selectedRequest && (
+                    <>
+                      <h3>
+                        Request {selectedRequest.id} · {selectedRequest.cat}
+                      </h3>
+                      <p>{selectedRequest.address || "Address not provided"}</p>
+                      <p>{selectedRequest.description}</p>
+                      <dl>
+                        <div>
+                          <dt>Urgency</dt>
+                          <dd>
+                            {selectedRequest.lvl
+                              ? `${selectedRequest.lvl}${
+                                  selectedRequest.sc === null
+                                    ? ""
+                                    : ` · ${selectedRequest.sc}%`
+                                }`
+                              : "Not assessed"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Status</dt>
+                          <dd>
+                            <span
+                              className={`${styles.pill} ${styles[statusClass[selectedRequest.st]]}`}
+                            >
+                              {displayStatus(selectedRequest.st)}
+                            </span>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Submitted</dt>
+                          <dd>
+                            {new Date(selectedRequest.createdAt).toLocaleDateString()}
+                          </dd>
+                        </div>
+                      </dl>
+                    </>
+                  )}
+                  {selectedShelter && (
+                    <>
+                      <h3>{selectedShelter.n}</h3>
+                      <p>Shelter</p>
+                      <dl>
+                        <div>
+                          <dt>Occupancy</dt>
+                          <dd>
+                            <span
+                              className={`${styles.pill} ${
+                                selectedShelter.p >= 80
+                                  ? styles.high
+                                  : styles.low
+                              }`}
+                            >
+                              {selectedShelter.p}% full
+                            </span>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Beds used</dt>
+                          <dd>
+                            {selectedShelter.u} of {selectedShelter.c}
+                          </dd>
+                        </div>
+                      </dl>
+                      <div
+                        className={`${styles.bar} ${
+                          selectedShelter.p >= 80 ? styles.redBar : ""
+                        }`}
+                      >
+                        <i style={{ width: `${selectedShelter.p}%` }} />
+                      </div>
+                    </>
+                  )}
+                  {selectedDepot && (
+                    <>
+                      <h3>{selectedDepot.n}</h3>
+                      <p>{selectedDepot.item} resource</p>
+                      <dl>
+                        <div>
+                          <dt>Available</dt>
+                          <dd>{selectedDepot.quantityAvailable}</dd>
+                        </div>
+                        {selectedDepot.description && (
+                          <div>
+                            <dt>Description</dt>
+                            <dd>{selectedDepot.description}</dd>
+                          </div>
+                        )}
+                      </dl>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className={styles.mapKey}>
+              {accountRole === "Citizen" ? (
+                <>
+                  <span>
+                    <i className={styles.keyShelter} />
+                    Shelter
+                  </span>
+                  <span>
+                    <i className={styles.keyResource} />
+                    Resource
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span><i className={styles.keyCritical} />Critical</span>
+                  <span><i className={styles.keyHigh} />High</span>
+                  <span><i className={styles.keyMedium} />Medium</span>
+                  <span><i className={styles.keyLow} />Low</span>
+                  <span><i className={styles.keyUnassessed} />Not assessed</span>
+                  <span><i className={styles.keyShelter} />Shelter</span>
+                </>
+              )}
+            </div>
+            <p className={styles.note}>
+              {accountRole === "Citizen"
+                ? "Tap “Use my location” to show mapped shelters and resources within 50 km. Your location is used only by this browser and is not saved."
+                : "Exact request locations are visible only to authorized staff. Shelters and requests without saved coordinates are not plotted."}
+            </p>
+          </section>
+        )}
 
         <div className={styles.columns}>
           <section className={styles.card} id="queue" aria-labelledby="queue-title">
-            <div className={styles.cardHeading}><h2 id="queue-title">Incoming Assistance Requests &amp; Urgency Queue</h2><button className={styles.button} type="button" onClick={showAllRequests}>View all</button></div>
-            <div className={styles.tableScroll}><table><colgroup><col className={styles.colId} /><col className={styles.colCategory} /><col className={styles.colName} /><col className={styles.colUrgency} /><col className={styles.colStatus} /><col className={styles.colActions} /></colgroup><thead><tr><th>Request ID</th><th>Category</th><th>Citizen</th><th>AI Urgency</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-              {visibleRequests.slice().sort((a, b) => ["High", "Medium", "Low"].indexOf(a.request.lvl) - ["High", "Medium", "Low"].indexOf(b.request.lvl) || b.request.sc - a.request.sc).map(({ request, index }) => (
-                <tr className={selection?.type === "req" && selection.index === index ? styles.highlightedRow : ""} key={request.id} style={{ "--level-color": urgencyColors[request.lvl] } as CSSProperties}>
-                  <td><button className={styles.requestId} type="button" aria-label={`Show request ${request.id} on map`} onClick={() => selectItem("req", index, true)}>#REQ-{request.id}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11z" /><circle cx="12" cy="10" r="2.5" /></svg></button></td>
-                  <td className={styles.category}>{request.cat}</td><td className={styles.citizen}>{request.name}</td>
-                  <td><div className={styles.urgencyCell}><span className={`${styles.pill} ${styles[urgencyClass(request.lvl)]}`}>{request.lvl} · {request.sc}%</span><span className={styles.meter}><i style={{ width: `${request.sc}%`, background: urgencyColors[request.lvl] }} /></span></div></td>
-                  <td><span className={`${styles.pill} ${styles[statusClass[request.st]]}`}>{request.st}</span></td>
-                  <td><div className={styles.rowActions}><button className={styles.button} type="button" onClick={() => selectItem("req", index, true)}>Review</button><button className={`${styles.button} ${styles.primaryButton}`} type="button" disabled={isDone(request)} onClick={() => allocate(index)}>Allocate</button></div></td>
-                </tr>
-              ))}
-            </tbody></table></div>
+            <div className={styles.cardHeading}>
+              <h2 id="queue-title">{accountRole === "Citizen" ? "My Assistance Requests" : "Assistance Requests"}</h2>
+              {accountRole === "Citizen" && <Link className={styles.button} href="/request-aid">New request</Link>}
+              <button className={styles.button} type="button" onClick={showAllRequests}>View all</button>
+            </div>
+            <div className={styles.tableScroll}>
+              <table>
+                <colgroup>
+                  <col className={styles.colId} />
+                  <col className={styles.colCategory} />
+                  <col className={styles.colName} />
+                  <col className={styles.colUrgency} />
+                  <col className={styles.colStatus} />
+                  <col className={styles.colActions} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Request ID</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th>Urgency</th>
+                    <th>Status</th>
+                    <th>{requestStaffRoles.has(accountRole) ? "Actions" : "Submitted"}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoadingRequests && (
+                    <tr><td colSpan={6} role="status">{accountRole === "Citizen" ? "Loading your requests…" : "Loading requests…"}</td></tr>
+                  )}
+                  {!isLoadingRequests && requestLoadError && (
+                    <tr><td colSpan={6} role="alert">{requestLoadError}</td></tr>
+                  )}
+                  {!isLoadingRequests && !requestLoadError && visibleRequests.length === 0 && (
+                    <tr><td colSpan={6}>No requests found.</td></tr>
+                  )}
+                  {!isLoadingRequests && !requestLoadError &&
+                    visibleRequests
+                      .slice()
+                      .sort(
+                        (a, b) =>
+                          Date.parse(b.createdAt) -
+                          Date.parse(a.createdAt),
+                      )
+                      .map((request) => {
+                        const markerColor = request.lvl
+                          ? urgencyColors[request.lvl]
+                          : "#718096";
+                        return (
+                          <tr
+                            className={
+                              selection?.type === "request" &&
+                              selection.id === request.id
+                                ? styles.highlightedRow
+                                : ""
+                            }
+                            key={request.id}
+                            style={{ "--level-color": markerColor } as CSSProperties}
+                          >
+                            <td>
+                              <button
+                                className={styles.requestId}
+                                type="button"
+                                aria-label={`Show request ${request.id} on map`}
+                                onClick={() =>
+                                  selectItem(
+                                    "req",
+                                    requests.findIndex((item) => item.id === request.id),
+                                    true,
+                                  )
+                                }
+                              >
+                                #{request.id}
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                  <path d="M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11z" />
+                                  <circle cx="12" cy="10" r="2.5" />
+                                </svg>
+                              </button>
+                            </td>
+                            <td className={styles.category}>{request.cat}</td>
+                            <td className={styles.citizen}>{request.description}</td>
+                            <td>
+                              <div className={styles.urgencyCell}>
+                                <span className={`${styles.pill} ${styles[urgencyClass(request.lvl)]}`}>
+                                  {request.lvl ?? "Not assessed"}
+                                  {request.sc === null ? "" : ` · ${request.sc}%`}
+                                </span>
+                                {request.sc !== null && (
+                                  <span className={styles.meter}>
+                                    <i
+                                      style={{
+                                        width: `${request.sc}%`,
+                                        background: markerColor,
+                                      }}
+                                    />
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              <span className={`${styles.pill} ${styles[statusClass[request.st]]}`}>
+                                {displayStatus(request.st)}
+                              </span>
+                            </td>
+                            <td>
+                              {requestStaffRoles.has(accountRole) ? (
+                                <div className={styles.rowActions}>
+                                  {request.st === "Submitted" && (
+                                    <button
+                                      className={`${styles.button} ${styles.primaryButton}`}
+                                      type="button"
+                                      disabled={updatingRequestId === request.id}
+                                      onClick={() =>
+                                        void updateRequest(request, "status", {
+                                          status: "PendingReview",
+                                        })
+                                      }
+                                    >
+                                      Send to review
+                                    </button>
+                                  )}
+                                  {request.st === "PendingReview" && (
+                                    <>
+                                      <button
+                                        className={`${styles.button} ${styles.primaryButton}`}
+                                        type="button"
+                                        disabled={updatingRequestId === request.id}
+                                        onClick={() =>
+                                          void updateRequest(request, "review", {
+                                            action: "Approved",
+                                          })
+                                        }
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        className={styles.button}
+                                        type="button"
+                                        disabled={updatingRequestId === request.id}
+                                        onClick={() =>
+                                          void updateRequest(request, "review", {
+                                            action: "Deferred",
+                                          })
+                                        }
+                                      >
+                                        Defer
+                                      </button>
+                                      <button
+                                        className={styles.button}
+                                        type="button"
+                                        disabled={updatingRequestId === request.id}
+                                        onClick={() =>
+                                          void updateRequest(request, "review", {
+                                            action: "Rejected",
+                                          })
+                                        }
+                                      >
+                                        Reject
+                                      </button>
+                                    </>
+                                  )}
+                                  {request.st === "Approved" && (
+                                    <button
+                                      className={`${styles.button} ${styles.primaryButton}`}
+                                      type="button"
+                                      disabled={updatingRequestId === request.id}
+                                      onClick={() =>
+                                        void updateRequest(request, "status", {
+                                          status: "Assigned",
+                                        })
+                                      }
+                                    >
+                                      Assign
+                                    </button>
+                                  )}
+                                  {request.st === "Assigned" && (
+                                    <button
+                                      className={`${styles.button} ${styles.primaryButton}`}
+                                      type="button"
+                                      disabled={updatingRequestId === request.id}
+                                      onClick={() =>
+                                        void updateRequest(request, "status", {
+                                          status: "Fulfilled",
+                                        })
+                                      }
+                                    >
+                                      Mark fulfilled
+                                    </button>
+                                  )}
+                                  {updatingRequestId === request.id && (
+                                    <span className={styles.note} role="status">
+                                      Updating…
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                new Date(request.createdAt).toLocaleDateString()
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                </tbody>
+              </table>
+            </div>
+            {requestActionError && (
+              <p className={styles.note} role="alert">
+                {requestActionError}
+              </p>
+            )}
+            <div className={styles.row}>
+              <span>
+                {totalRequestCount === 0
+                  ? "No requests"
+                  : `Showing ${(requestPage - 1) * 100 + 1}–${Math.min(
+                      requestPage * 100,
+                      totalRequestCount,
+                    )} of ${totalRequestCount}`}
+              </span>
+              <div className={styles.row}>
+                <button
+                  className={styles.button}
+                  type="button"
+                  disabled={requestPage <= 1 || isLoadingRequests}
+                  onClick={() => setRequestPage((page) => page - 1)}
+                >
+                  Previous
+                </button>
+                <span>Page {requestPage} of {totalRequestPages}</span>
+                <button
+                  className={styles.button}
+                  type="button"
+                  disabled={requestPage >= totalRequestPages || isLoadingRequests}
+                  onClick={() => setRequestPage((page) => page + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </section>
           <div className={styles.sideColumn}>
-            <section className={styles.card} aria-labelledby="shelters-title">
-              <div className={styles.cardHeading}><h2 id="shelters-title">Shelters &amp; Resources</h2><button className={styles.button} type="button" onClick={() => notify("Shelter management is not available yet.")}>Manage</button></div>
-              <div>{shelters.slice(0, 3).map((shelter, index) => <button className={styles.shelterBar} key={shelter.n} type="button" aria-label={`Show ${shelter.n} on map`} onClick={() => selectItem("sh", index, true)}><span className={styles.shelterTop}><b>{shelter.n}</b><strong className={shelter.p >= 80 ? styles.redText : ""}>{shelter.p}% full</strong></span><span className={`${styles.bar} ${shelter.p >= 80 ? styles.redBar : ""}`}><i style={{ width: `${shelter.p}%` }} /></span></button>)}</div>
-              <div className={styles.resourceList}><div><span className={`${styles.pill} ${styles.normal}`}>Normal</span>Food</div><div><span className={`${styles.pill} ${styles.lowStock}`}>Low stock</span>Medical Kits</div><div><span className={`${styles.pill} ${styles.critical}`}>Critical</span>Water</div></div>
+            <section
+              className={styles.card}
+              id="shelters-resources"
+              aria-labelledby="shelters-title"
+            >
+              <div className={styles.cardHeading}><h2 id="shelters-title">Shelters &amp; Resources</h2></div>
+              {isLoadingShelters ? (
+                <p role="status">Loading shelters…</p>
+              ) : shelterLoadError ? (
+                <p role="alert">{shelterLoadError}</p>
+              ) : shelters.length === 0 ? (
+                <p>No shelters are available.</p>
+              ) : (
+                <div>
+                  {shelters.slice(0, 3).map((shelter, index) => {
+                    const details = (
+                      <>
+                        <span className={styles.shelterTop}>
+                          <b>{shelter.n}</b>
+                          <strong className={shelter.p >= 80 ? styles.redText : ""}>
+                            {shelter.p}% full
+                          </strong>
+                        </span>
+                        <span
+                          className={`${styles.bar} ${
+                            shelter.p >= 80 ? styles.redBar : ""
+                          }`}
+                        >
+                          <i style={{ width: `${shelter.p}%` }} />
+                        </span>
+                      </>
+                    );
+
+                    return requestStaffRoles.has(accountRole) ? (
+                      <button
+                        className={styles.shelterBar}
+                        key={shelter.id}
+                        type="button"
+                        aria-label={`Show ${shelter.n} on map`}
+                        onClick={() => selectItem("sh", index, true)}
+                      >
+                        {details}
+                      </button>
+                    ) : (
+                      <div className={styles.shelterBar} key={shelter.id}>
+                        {details}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div className={styles.resourceList}>
+                {isLoadingResources ? (
+                  <p role="status">Loading inventory…</p>
+                ) : resourceLoadError ? (
+                  <p role="alert">{resourceLoadError}</p>
+                ) : depots.length === 0 ? (
+                  <p>No resource inventory is available.</p>
+                ) : (
+                  depots.slice(0, 5).map((resource) => (
+                    <div key={resource.id}>
+                      <span className={`${styles.pill} ${styles.normal}`}>{resource.quantityAvailable} available</span>
+                      {resource.item}: {resource.n}
+                    </div>
+                  ))
+                )}
+              </div>
             </section>
             <section className={styles.card} aria-labelledby="notifications-title">
-              <div className={styles.cardHeading}><h2 id="notifications-title">Recent Notification Logs</h2><span className={`${styles.tag} ${styles.redTag}`}>1 failed</span><button className={styles.button} type="button" onClick={() => notify("Test notification sent.")}>Test Notification</button></div>
-              <div className={styles.logs}>
-                <LogEntry title="Allocation update" detail="SMS · +94 ***1234" time="09:22" status="Sent" channel="sms" />
-                <LogEntry title="Request received" detail="Email · c***@mail.com" time="09:12" status="Sent" channel="email" />
-                <LogEntry title="Shelter assignment" detail="SMS · +94 ***5678" time="08:41" status="Failed" channel="sms" />
-                <LogEntry title="Status update" detail="Email · v***@mail.com" time="08:20" status="Pending" channel="email" />
-              </div>
+              <div className={styles.cardHeading}><h2 id="notifications-title">Notification history</h2></div>
+              <p className={styles.note}>Notification history and test-delivery controls are not exposed by the current API.</p>
             </section>
           </div>
         </div>
       </main>
-      <div className={`${styles.toast} ${showToast ? styles.toastVisible : ""}`} role="status" aria-live="polite">{toast}</div>
     </div>
   );
 }
 
-function urgencyClass(level: Urgency) {
+function urgencyClass(level: Urgency | null) {
+  if (level === null) return "unassessed";
+  if (level === "Critical") return "critical";
   return level === "High" ? "high" : level === "Medium" ? "medium" : "low";
+}
+
+function displayStatus(status: RequestStatus) {
+  return status.replace(/([a-z])([A-Z])/g, "$1 $2");
 }
 
 function DocumentIcon() {
@@ -511,17 +1808,4 @@ function BoxIcon() {
 
 function BellIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 21h4" /></svg>;
-}
-
-function LogEntry({ title, detail, time, status, channel }: { title: string; detail: string; time: string; status: "Sent" | "Pending" | "Failed"; channel: "sms" | "email" }) {
-  const className = status === "Sent" ? styles.logSuccess : status === "Pending" ? styles.logPending : styles.logFailed;
-  return <div className={styles.logEntry}><span className={styles.logIcon}>{channel === "sms" ? <MessageIcon /> : <MailIcon />}</span><div><b>{title}</b><small>{detail}</small></div><div className={styles.logResult}><span className={`${styles.pill} ${className}`}>{status}</span><small>{time}</small></div></div>;
-}
-
-function MessageIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" /></svg>;
-}
-
-function MailIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></svg>;
 }

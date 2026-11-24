@@ -195,6 +195,63 @@
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
+.field select {
+  width: 100%;
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid #d5dbe3;
+  border-radius: 10px;
+  background: #fff;
+  color: #121b26;
+  font: inherit;
+  font-size: 15px;
+}
+
+.field select:focus {
+  outline: none;
+  border-color: #1a603e;
+  box-shadow: 0 0 0 4px rgba(26, 96, 62, 0.16);
+}
+
+.applicationType {
+  margin: 0 0 17px;
+  padding: 0;
+  border: 0;
+}
+
+.applicationType legend {
+  margin-bottom: 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.applicationChoices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.applicationChoices label {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid #d5dbe3;
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.applicationChoices label:has(input:checked) {
+  border-color: #1a603e;
+  background: #f0f8f3;
+}
+
+.applicationChoices input {
+  accent-color: #1a603e;
+}
+
 .field input:not([type="checkbox"])::placeholder {
   color: #7c8795;
 }
@@ -313,6 +370,11 @@
 
 .button:hover {
   background: #144d31;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .page a:focus-visible,

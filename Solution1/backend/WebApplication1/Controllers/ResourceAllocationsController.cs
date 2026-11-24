@@ -5,14 +5,17 @@ using System.Threading.Tasks;
 
 using HumanitarianAidPlatform.Application.Resources;
 using HumanitarianAidPlatform.Application.Resources.DTOs;
+using HumanitarianAidPlatform.Domain.Entities.Users;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HumanitarianAidPlatform.Api.Controllers;
 
 [ApiController]
 [Route("api/resource-allocations")]
+[Authorize(Roles = $"{RoleNames.Admin},{RoleNames.ResourceManager},{RoleNames.Coordinator},{RoleNames.CaseManager}")]
 public class ResourceAllocationsController : ControllerBase
 {
     private readonly ResourceAllocationService _service;

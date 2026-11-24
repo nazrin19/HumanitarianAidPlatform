@@ -37,6 +37,7 @@ public class ResourceService
     // CREATE
     public async Task<ResourceDto> CreateAsync(ResourceDto dto)
     {
+        ValidateCoordinates(dto);
         if (dto.QuantityAvailable < 0)
         {
             throw new ArgumentOutOfRangeException(
@@ -51,7 +52,9 @@ public class ResourceService
             Name = dto.Name.Trim(),
             Category = dto.Category.Trim(),
             QuantityAvailable = dto.QuantityAvailable,
-            Description = dto.Description?.Trim()
+            Description = dto.Description?.Trim(),
+            Latitude = dto.Latitude,
+            Longitude = dto.Longitude
         };
 
         await _repository.AddAsync(resource);
@@ -64,6 +67,7 @@ public class ResourceService
         Guid id,
         ResourceDto dto)
     {
+        ValidateCoordinates(dto);
         if (dto.QuantityAvailable < 0)
         {
             throw new ArgumentOutOfRangeException(
@@ -83,6 +87,8 @@ public class ResourceService
         resource.Category = dto.Category.Trim();
         resource.QuantityAvailable = dto.QuantityAvailable;
         resource.Description = dto.Description?.Trim();
+        resource.Latitude = dto.Latitude;
+        resource.Longitude = dto.Longitude;
 
         await _repository.UpdateAsync(resource);
 
@@ -113,7 +119,18 @@ public class ResourceService
             Name = resource.Name,
             Category = resource.Category,
             QuantityAvailable = resource.QuantityAvailable,
-            Description = resource.Description
+            Description = resource.Description,
+            Latitude = resource.Latitude,
+            Longitude = resource.Longitude
         };
+    }
+
+    private static void ValidateCoordinates(ResourceDto dto)
+    {
+        if (dto.Latitude.HasValue != dto.Longitude.HasValue)
+        {
+            throw new ArgumentException(
+                "Latitude and longitude must be provided together.");
+        }
     }
 }

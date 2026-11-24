@@ -1,42 +1,9 @@
-"use client";
-
 import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useRef, useState } from "react";
+import RequestAidForm from "./components/RequestAidForm";
 import styles from "./page.module.css";
 
-type NeedType = "sh" | "su";
-
 export default function Home() {
-  const [visibleNeeds, setVisibleNeeds] = useState({
-    sh: true,
-    su: true,
-  });
-  const [email, setEmail] = useState("");
-  const [newsletterMessage, setNewsletterMessage] = useState("");
-  const [isNewsletterSuccess, setIsNewsletterSuccess] = useState(false);
-  const emailRef = useRef<HTMLInputElement>(null);
-
-  function toggleNeed(type: NeedType) {
-    setVisibleNeeds((visible) => ({ ...visible, [type]: !visible[type] }));
-  }
-
-  function handleNewsletterSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setNewsletterMessage("");
-    setIsNewsletterSuccess(false);
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setNewsletterMessage("Enter a valid email address.");
-      emailRef.current?.focus();
-      return;
-    }
-
-    setIsNewsletterSuccess(true);
-    setNewsletterMessage("Thanks for signing up!");
-    setEmail("");
-  }
-
   return (
     <div className={styles.page}>
       <title>HumanitarianAidPlatform · Home</title>
@@ -58,15 +25,15 @@ export default function Home() {
           </Link>
 
           <nav className={styles.links} aria-label="Main">
-            <Link href="#requests">Explore Requests</Link>
-            <Link href="#impact">Our Impact</Link>
+            <Link href="#requests">Request help</Link>
+            <Link href="#impact">How aid is coordinated</Link>
             <Link href="#about">About Us</Link>
             <Link href="#involved">Get Involved</Link>
           </nav>
 
           <div className={styles.right}>
-            <Link className={`${styles.button} ${styles.solid} ${styles.small}`} href="/request-aid">
-              Join Us
+            <Link className={`${styles.button} ${styles.solid} ${styles.small}`} href="#requests">
+              Request help
             </Link>
             <Link className={styles.login} href="/login">
               Login
@@ -81,12 +48,12 @@ export default function Home() {
             <h1>Empowering Communities, Directing Support.</h1>
             <p className={styles.lead}>
               Join a global network of volunteers and organizations coordinating
-              disaster relief, managing shelters, and dispatching aid where it
-              is needed most.
+              disaster relief, review assistance requests, and coordinate aid
+              where it is needed most.
             </p>
             <div className={styles.row}>
-              <Link className={`${styles.button} ${styles.solid}`} href="/request-aid">
-                Get Started
+              <Link className={`${styles.button} ${styles.solid}`} href="#requests">
+                Ask for help
               </Link>
               <Link className={`${styles.button} ${styles.outline}`} href="#about">
                 Learn More
@@ -105,7 +72,7 @@ export default function Home() {
             <div className={styles.how}>
               <h3>How it Works</h3>
               <div className={styles.mini}>
-                <Link href="/request-aid">
+                <Link href="#requests">
                   <Image
                     src="/homepage/home-request-help.jpg"
                     alt=""
@@ -152,273 +119,48 @@ export default function Home() {
           </div>
         </section>
 
-        <section
-          className={`${styles.layer} ${styles.tint}`}
-          id="requests"
-        >
+        <section className={`${styles.layer} ${styles.tint}`} id="requests">
           <div className={styles.wrap}>
-            <span className={styles.eyebrow}>EXPLORE REQUESTS</span>
-            <h2>Active needs, mapped in real time</h2>
+            <span className={styles.eyebrow}>REQUEST HELP</span>
+            <h2>Tell us what you need</h2>
             <p className={styles.sub}>
-              See where shelter and supplies are needed most, and which requests
-              are most urgent.
+              Choose a category, tell us where you are, and describe your
+              situation. A Citizen account is required to submit a request.
             </p>
-
-            <div className={styles.needs}>
-              <div className={styles.panel}>
-                <h4>Active Needs &amp; Disaster Map</h4>
-                <div className={styles.chips}>
-                  <button
-                    className={styles.filterChip}
-                    type="button"
-                    aria-pressed={visibleNeeds.sh}
-                    onClick={() => toggleNeed("sh")}
-                  >
-                    &#8962; Shelter
-                  </button>
-                  <button
-                    className={`${styles.filterChip} ${styles.suppliesChip}`}
-                    type="button"
-                    aria-pressed={visibleNeeds.su}
-                    onClick={() => toggleNeed("su")}
-                  >
-                    &#9638; Supplies
-                  </button>
-                </div>
-
-                <svg
-                  className={styles.map}
-                  viewBox="0 0 560 280"
-                  role="img"
-                  aria-label="Map showing shelter and supply needs"
-                >
-                  <rect width="560" height="280" fill="#EAF6EE" />
-                  <path
-                    d="M0 210c80-30 120 30 220 0s140-60 340-20v90H0z"
-                    fill="#D5EEDF"
-                  />
-                  <path
-                    d="M-10 70C90 40 150 120 250 90S420 20 570 70"
-                    fill="none"
-                    stroke="#BFE3EE"
-                    strokeWidth="16"
-                    strokeLinecap="round"
-                  />
-                  <g
-                    fill="none"
-                    stroke="#fff"
-                    strokeWidth="7"
-                    strokeLinecap="round"
-                  >
-                    <path d="M40 0c20 90 80 120 150 160s120 80 130 120" />
-                    <path d="M0 150c120 20 200-30 330-10s170 60 230 40" />
-                    <path d="M420 0c-10 60 20 110 70 150" />
-                  </g>
-                  <g fill="none" stroke="#D3DCE0" strokeWidth="1.5">
-                    <path d="M0 100h560M0 200h560M140 0v280M300 0v280M440 0v280" opacity=".45" />
-                  </g>
-                  <g
-                    style={{ display: visibleNeeds.sh ? undefined : "none" }}
-                  >
-                    <g transform="translate(130 118)">
-                      <path
-                        d="M0-22a14 14 0 0 1 14 14c0 10-14 26-14 26s-14-16-14-26a14 14 0 0 1 14-14z"
-                        fill="#1B633E"
-                      />
-                      <circle cy="-8" r="5" fill="#fff" />
-                    </g>
-                    <g transform="translate(310 200)">
-                      <path
-                        d="M0-22a14 14 0 0 1 14 14c0 10-14 26-14 26s-14-16-14-26a14 14 0 0 1 14-14z"
-                        fill="#1B633E"
-                      />
-                      <circle cy="-8" r="5" fill="#fff" />
-                    </g>
-                  </g>
-                  <g
-                    style={{ display: visibleNeeds.su ? undefined : "none" }}
-                  >
-                    <g transform="translate(230 70)">
-                      <path
-                        d="M0-22a14 14 0 0 1 14 14c0 10-14 26-14 26s-14-16-14-26a14 14 0 0 1 14-14z"
-                        fill="#E8794A"
-                      />
-                      <circle cy="-8" r="5" fill="#fff" />
-                    </g>
-                    <g transform="translate(430 150)">
-                      <path
-                        d="M0-22a14 14 0 0 1 14 14c0 10-14 26-14 26s-14-16-14-26a14 14 0 0 1 14-14z"
-                        fill="#E8794A"
-                      />
-                      <circle cy="-8" r="5" fill="#fff" />
-                    </g>
-                  </g>
-                  <g
-                    fontFamily="Inter, sans-serif"
-                    fontSize="12"
-                    fontWeight="600"
-                    fill="#111A22"
-                  >
-                    <text x="150" y="140">
-                      City Center
-                    </text>
-                    <text x="250" y="76">
-                      Riverside
-                    </text>
-                    <text x="330" y="222">
-                      Temple Grounds
-                    </text>
-                    <text x="450" y="172">
-                      Harbour
-                    </text>
-                  </g>
-                </svg>
-
-                <div className={styles.mapStats}>
-                  <div>
-                    <b>2,400+</b>
-                    <span>Volunteers Active</span>
-                  </div>
-                  <div>
-                    <b>120+</b>
-                    <span>Active Projects</span>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <div className={styles.requests}>
-                  <article className={styles.request}>
-                    <div>
-                      <strong>Temporary shelter</strong>
-                      <span className={`${styles.tag} ${styles.high}`}>
-                        High · 92%
-                      </span>
-                    </div>
-                    <small>City Center · Request #1042</small>
-                    <div className={styles.bar}>
-                      <i style={{ width: "85%" }} />
-                    </div>
-                  </article>
-                  <article className={styles.request}>
-                    <div>
-                      <strong>Medicine</strong>
-                      <span className={`${styles.tag} ${styles.high}`}>
-                        High · 84%
-                      </span>
-                    </div>
-                    <small>Riverside · Request #1041</small>
-                    <div className={styles.bar}>
-                      <i style={{ width: "60%" }} />
-                    </div>
-                  </article>
-                  <article className={styles.request}>
-                    <div>
-                      <strong>Food packs</strong>
-                      <span className={`${styles.tag} ${styles.medium}`}>
-                        Medium · 67%
-                      </span>
-                    </div>
-                    <small>Temple Grounds · Request #1040</small>
-                    <div className={styles.bar}>
-                      <i style={{ width: "40%" }} />
-                    </div>
-                  </article>
-                  <article className={styles.request}>
-                    <div>
-                      <strong>Transport</strong>
-                      <span className={`${styles.tag} ${styles.low}`}>
-                        Low · 71%
-                      </span>
-                    </div>
-                    <small>Harbour · Request #1038</small>
-                    <div className={styles.bar}>
-                      <i style={{ width: "25%" }} />
-                    </div>
-                  </article>
-                </div>
-                <p className={styles.note}>Sample data shown for illustration.</p>
-              </div>
-            </div>
+            <RequestAidForm embedded />
           </div>
         </section>
 
         <section className={styles.layer} id="impact">
           <div className={styles.wrap}>
-            <span className={styles.eyebrow}>OUR IMPACT</span>
-            <h2>Aid that reaches people, measured</h2>
+            <span className={styles.eyebrow}>OUR APPROACH</span>
+            <h2>Every request is reviewed by people</h2>
             <p className={styles.sub}>
-              Every request, shelter and delivery is tracked so teams can see
-              what is working.
+              Your request is saved securely, then a coordinator reviews it.
+              Any automated urgency recommendation is a guide for staff, not an
+              automatic decision about who receives help.
             </p>
 
-            <div className={styles.kpis}>
-              <div className={styles.kpi}>
-                <b>2,400+</b>
-                <span>Volunteers active</span>
-              </div>
-              <div className={styles.kpi}>
-                <b>120+</b>
-                <span>Active projects</span>
-              </div>
-              <div className={styles.kpi}>
-                <b>17</b>
-                <span>Shelters connected</span>
-              </div>
-              <div className={styles.kpi}>
-                <b>98.4%</b>
-                <span>Alerts delivered</span>
-              </div>
-            </div>
-
-            <div className={styles.impactDetails}>
-              <div className={styles.panel}>
-                <h4>Shelter occupancy</h4>
-                <div className={styles.occupancy}>
-                  <div>
-                    <label>
-                      <span>City Center Shelter</span>
-                      <span className={styles.redText}>85% full</span>
-                    </label>
-                    <div className={`${styles.bar} ${styles.redBar}`}>
-                      <i style={{ width: "85%" }} />
-                    </div>
-                  </div>
-                  <div>
-                    <label>
-                      <span>Riverside Hall</span>
-                      <span className={styles.greenText}>54% full</span>
-                    </label>
-                    <div className={styles.bar}>
-                      <i style={{ width: "54%" }} />
-                    </div>
-                  </div>
-                  <div>
-                    <label>
-                      <span>Temple Grounds</span>
-                      <span className={styles.greenText}>39% full</span>
-                    </label>
-                    <div className={styles.bar}>
-                      <i style={{ width: "39%" }} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className={`${styles.panel} ${styles.ringPanel}`}>
-                <div className={styles.ring}>
-                  <i>
-                    <span>
-                      92%
-                      <small>Active Community</small>
-                    </span>
-                  </i>
-                </div>
+            <div className={styles.values}>
+              <div>
+                <i>1</i>
                 <div>
-                  <h4>Community engagement</h4>
-                  <p>
-                    Most registered volunteers and partners took part in at
-                    least one response this month.
-                  </p>
+                  <strong>Submit</strong>
+                  <p>Share the kind of help you need and a location where the team can reach you.</p>
+                </div>
+              </div>
+              <div>
+                <i>2</i>
+                <div>
+                  <strong>Review</strong>
+                  <p>A coordinator reviews the request and its urgency recommendation.</p>
+                </div>
+              </div>
+              <div>
+                <i>3</i>
+                <div>
+                  <strong>Coordinate</strong>
+                  <p>The team follows up to plan next steps. Submitting a request does not guarantee immediate assistance.</p>
                 </div>
               </div>
             </div>
@@ -453,8 +195,8 @@ export default function Home() {
                   <div>
                     <strong>Prioritise</strong>
                     <p>
-                      Requests are scored by urgency so the most critical cases
-                      come first.
+                      A rule-based urgency recommendation helps coordinators
+                      review requests; a person makes the decision.
                     </p>
                   </div>
                 </div>
@@ -462,14 +204,14 @@ export default function Home() {
                   <i>2</i>
                   <div>
                     <strong>Coordinate</strong>
-                    <p>Match shelters, stock and volunteers with a single click.</p>
+                    <p>Staff can review requests, shelters and available resources.</p>
                   </div>
                 </div>
                 <div>
                   <i>3</i>
                   <div>
                     <strong>Track</strong>
-                    <p>Follow every dispatch and notify everyone involved.</p>
+                    <p>Citizens can sign in to view the status of their submitted requests.</p>
                   </div>
                 </div>
               </div>
@@ -494,12 +236,12 @@ export default function Home() {
                 </div>
                 <h3>Volunteer</h3>
                 <p>
-                  Pick up dispatches, help at shelters and update delivery
-                  status.
+                  Apply to join the response community. Applications are
+                  reviewed before an account is activated.
                 </p>
                 <Link
                   className={`${styles.button} ${styles.solid} ${styles.small}`}
-                  href="/signup"
+                  href="/signup/volunteer"
                 >
                   Join Us
                 </Link>
@@ -513,10 +255,10 @@ export default function Home() {
                   </svg>
                 </div>
                 <h3>Donate</h3>
-                <p>Fund and stock the supplies that shelters need most.</p>
+                <p>Apply for a donor account and support relief campaigns.</p>
                 <Link
                   className={`${styles.button} ${styles.solid} ${styles.small}`}
-                  href="/signup"
+                  href="/signup/donor"
                 >
                   Join Us
                 </Link>
@@ -528,13 +270,7 @@ export default function Home() {
                   </svg>
                 </div>
                 <h3>Partner organisation</h3>
-                <p>Connect your team, shelter or charity to the network.</p>
-                <Link
-                  className={`${styles.button} ${styles.solid} ${styles.small}`}
-                  href="/signup"
-                >
-                  Join Us
-                </Link>
+                <p>Contact the platform administrator to arrange a partner organisation account.</p>
               </article>
             </div>
           </div>
@@ -563,46 +299,16 @@ export default function Home() {
             <div>
               <h5>Site</h5>
               <div className={styles.footerLinks}>
-                <Link href="#requests">Explore Requests</Link>
+                <Link href="#requests">Request help</Link>
                 <Link href="#impact">Our Impact</Link>
                 <Link href="#about">About Us</Link>
                 <Link href="#involved">Get Involved</Link>
-                <Link href="#top">Careers</Link>
-                <Link href="#top">Contact</Link>
               </div>
             </div>
             <div>
               <h5>Newsletter</h5>
-              <form
-                className={styles.newsletter}
-                noValidate
-                onSubmit={handleNewsletterSubmit}
-              >
-                <input
-                  ref={emailRef}
-                  id="newsletter-email"
-                  className={styles.newsletterInput}
-                  type="email"
-                  autoComplete="email"
-                  placeholder="Email address"
-                  aria-label="Email address"
-                  aria-invalid={
-                    Boolean(newsletterMessage) && !isNewsletterSuccess
-                  }
-                  aria-describedby="newsletter-message"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
-                <button type="submit">Sign up</button>
-              </form>
-              <div
-                className={`${styles.message} ${isNewsletterSuccess ? styles.success : ""}`}
-                id="newsletter-message"
-                role="status"
-                aria-live="polite"
-              >
-                {newsletterMessage}
-              </div>
+              <p>Create a platform account to receive updates through your role-specific portal.</p>
+              <Link className={styles.newsletterLink} href="/signup">Create an account</Link>
             </div>
           </div>
           <div className={styles.copyright}>

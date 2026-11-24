@@ -167,12 +167,28 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
+        modelBuilder.Entity<Notification>(n =>
+        {
+            n.Property(x => x.Channel)
+                .HasConversion(
+                    channel => ConvertNotificationChannelToDatabase(channel),
+                    value => ConvertNotificationChannelFromDatabase(value))
+                .HasColumnName("Type")
+                .HasMaxLength(30)
+                .IsRequired();
+        });
+
         // User configuration
         modelBuilder.Entity<User>(u =>
         {
             u.Property(x => x.Email)
                 .HasMaxLength(256)
                 .IsRequired();
+
+            u.Property(x => x.AccountStatus)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .HasDefaultValue(AccountStatus.Active);
 
             u.HasIndex(x => x.Email)
                 .IsUnique();
@@ -193,6 +209,16 @@ public class AppDbContext : DbContext
                 {
                     Id = Guid.Parse("00000000-0000-0000-0000-000000000001"),
                     Name = RoleNames.Citizen
+                },
+                new Role
+                {
+                    Id = Guid.Parse("00000000-0000-0000-0000-000000000010"),
+                    Name = RoleNames.Volunteer
+                },
+                new Role
+                {
+                    Id = Guid.Parse("00000000-0000-0000-0000-000000000011"),
+                    Name = RoleNames.Donor
                 },
                 new Role
                 {
@@ -237,6 +263,13 @@ public class AppDbContext : DbContext
         });
 
         // Donor & Volunteer configuration
+        modelBuilder.Entity<Campaign>(c =>
+        {
+            c.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            c.Property(x => x.Description).HasMaxLength(2000);
+            c.Property(x => x.TargetAmount).HasPrecision(18, 2);
+        });
+
         modelBuilder.Entity<Donation>(d =>
         {
             d.Property(x => x.Amount).HasPrecision(18, 2);
@@ -255,6 +288,60 @@ public class AppDbContext : DbContext
             v.Property(x => x.FullName).HasMaxLength(150).IsRequired();
             v.Property(x => x.Email).HasMaxLength(256).IsRequired();
             v.HasIndex(x => x.Email).IsUnique();
+            v.HasIndex(x => x.UserId).IsUnique().HasFilter("[UserId] IS NOT NULL");
+            v.HasOne(x => x.User)
+                .WithOne(x => x.VolunteerProfile)
+                .HasForeignKey<Volunteer>(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
+
+        modelBuilder.Entity<Donor>(d =>
+        {
+            d.HasIndex(x => x.UserId).IsUnique().HasFilter("[UserId] IS NOT NULL");
+            d.HasOne(x => x.User)
+                .WithOne(x => x.DonorProfile)
+                .HasForeignKey<Donor>(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Donor & Volunteer relationships
+        modelBuilder.Entity<Donation>(d =>
+        {
+            d.HasOne(x => x.Donor).WithMany(x => x.Donations)
+                .HasForeignKey(x => x.DonorId).OnDelete(DeleteBehavior.Restrict);
+            d.HasOne(x => x.Campaign).WithMany(x => x.Donations)
+                .HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<VolunteerTask>(t =>
+        {
+            t.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            t.Property(x => x.Status).HasMaxLength(20);
+            t.HasOne(x => x.Volunteer).WithMany(x => x.Tasks)
+                .HasForeignKey(x => x.VolunteerId).OnDelete(DeleteBehavior.SetNull);
+        });
+    }
+
+    private static string ConvertNotificationChannelToDatabase(NotificationChannel channel)
+    {
+        return channel switch
+        {
+            NotificationChannel.Email => "Email",
+            NotificationChannel.Sms => "SMS",
+            NotificationChannel.InApp => "InApp",
+            _ => "Unknown"
+        };
+    }
+
+    private static NotificationChannel ConvertNotificationChannelFromDatabase(string value)
+    {
+        if (value.Equals("SMS", StringComparison.OrdinalIgnoreCase))
+        {
+            return NotificationChannel.Sms;
+        }
+
+        return Enum.TryParse<NotificationChannel>(value, true, out var channel)
+            ? channel
+            : NotificationChannel.Unknown;
     }
 }

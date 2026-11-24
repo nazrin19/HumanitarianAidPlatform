@@ -1,0 +1,55 @@
+@baseUrl = http://localhost:5001
+@adminToken = replace-with-admin-bearer-token
+@applicationId = replace-with-application-guid
+
+### Submit volunteer application
+POST {{baseUrl}}/api/auth/register/volunteer
+Content-Type: application/json
+
+{
+  "fullName": "Alex Volunteer",
+  "email": "alex.volunteer@example.com",
+  "password": "ChangeThisPassword123!",
+  "phone": "+1 555 0100",
+  "skills": "First aid"
+}
+
+### Submit donor application
+POST {{baseUrl}}/api/auth/register/donor
+Content-Type: application/json
+
+{
+  "fullName": "Alex Donor",
+  "email": "alex.donor@example.com",
+  "password": "ChangeThisPassword123!",
+  "phone": "+1 555 0101",
+  "type": "Individual"
+}
+
+### View pending volunteer and donor applications (Admin)
+GET {{baseUrl}}/api/admin/users/pending-applications
+Authorization: Bearer {{adminToken}}
+
+### Approve an application (Admin)
+POST {{baseUrl}}/api/admin/users/{{applicationId}}/approve
+Authorization: Bearer {{adminToken}}
+
+### Reject an application (Admin)
+POST {{baseUrl}}/api/admin/users/{{applicationId}}/reject
+Authorization: Bearer {{adminToken}}
+
+### Get an account (Admin)
+GET {{baseUrl}}/api/admin/users/{{applicationId}}
+Authorization: Bearer {{adminToken}}
+
+### Create a staff account (Admin)
+POST {{baseUrl}}/api/admin/users/staff
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "fullName": "Relief Coordinator",
+  "email": "coordinator@example.com",
+  "password": "ChangeThisPassword123!",
+  "role": "Coordinator"
+}
