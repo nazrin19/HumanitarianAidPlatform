@@ -13,6 +13,10 @@ public class DonorService : IDonorService
 
     public async Task<DonorResponseDto> CreateAsync(CreateDonorDto dto)
     {
+        if (await _repository.EmailExistsAsync(dto.Email.Trim()))
+            throw new InvalidOperationException(
+                "A donor with this email already exists.");
+
         var donor = new Donor
         {
             Id = Guid.NewGuid(),
@@ -49,7 +53,8 @@ public class DonorService : IDonorService
         donor.Email = dto.Email.Trim();
         donor.Phone = dto.Phone?.Trim();
         donor.Type = dto.Type;
-        donor.IsActive = dto.IsActive;
+        if (dto.IsActive.HasValue)
+            donor.IsActive = dto.IsActive.Value;
 
         await _repository.UpdateAsync(donor);
         return ToDto(donor);
