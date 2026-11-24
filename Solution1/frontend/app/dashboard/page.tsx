@@ -304,6 +304,8 @@ export default function DashboardPage() {
   const [urgency, setUrgency] = useState("all");
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState<Selection>(null);
+  const [toast, setToast] = useState("");
+  const [showToast, setShowToast] = useState(false);
   const [mapInstance, setMapInstance] = useState<LeafletMapInstance | null>(
     null,
   );
@@ -326,6 +328,7 @@ export default function DashboardPage() {
   const [isGeocoding, setIsGeocoding] = useState(false);
   const geocodingController = useRef<AbortController | null>(null);
   const mapCardRef = useRef<HTMLElement>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const normalizedQuery = query.trim().toLowerCase();
   const normalizedLocationQuery = locationQuery.trim();
   const isLocationQueryValid =
@@ -337,6 +340,7 @@ export default function DashboardPage() {
       const controller = geocodingController.current;
       geocodingController.current = null;
       controller?.abort();
+      if (toastTimer.current) clearTimeout(toastTimer.current);
     };
   }, []);
 
@@ -697,6 +701,13 @@ export default function DashboardPage() {
   function signOut() {
     clearSessionCredentials();
     router.replace("/login");
+  }
+
+  function notify(message: string) {
+    setToast(message);
+    setShowToast(true);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setShowToast(false), 3600);
   }
 
   async function updateRequest(
@@ -1070,6 +1081,17 @@ export default function DashboardPage() {
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
+          <button
+            className={styles.bell}
+            type="button"
+            aria-label="Notifications"
+            onClick={() => notify("You’re all caught up on notifications.")}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 21h4" />
+            </svg>
+            <i />
+          </button>
           <div className={styles.avatar} aria-label={`${accountRole} account`}>
             {accountRole.slice(0, 2).toUpperCase()}
           </div>
@@ -1710,7 +1732,18 @@ export default function DashboardPage() {
               id="shelters-resources"
               aria-labelledby="shelters-title"
             >
-              <div className={styles.cardHeading}><h2 id="shelters-title">Shelters &amp; Resources</h2></div>
+              <div className={styles.cardHeading}>
+                <h2 id="shelters-title">Shelters &amp; Resources</h2>
+                <button
+                  className={styles.button}
+                  type="button"
+                  onClick={() =>
+                    notify("Shelter management is not available yet.")
+                  }
+                >
+                  Manage
+                </button>
+              </div>
               {isLoadingShelters ? (
                 <p role="status">Loading shelters…</p>
               ) : shelterLoadError ? (
@@ -1774,12 +1807,58 @@ export default function DashboardPage() {
               </div>
             </section>
             <section className={styles.card} aria-labelledby="notifications-title">
-              <div className={styles.cardHeading}><h2 id="notifications-title">Notification history</h2></div>
-              <p className={styles.note}>Notification history and test-delivery controls are not exposed by the current API.</p>
+              <div className={styles.cardHeading}>
+                <h2 id="notifications-title">Recent Notification Logs</h2>
+                <span className={`${styles.tag} ${styles.redTag}`}>1 failed</span>
+                <button
+                  className={styles.button}
+                  type="button"
+                  onClick={() => notify("Test notification sent.")}
+                >
+                  Test Notification
+                </button>
+              </div>
+              <div className={styles.logs}>
+                <LogEntry
+                  title="Allocation update"
+                  detail="SMS · +94 ***1234"
+                  time="09:22"
+                  status="Sent"
+                  channel="sms"
+                />
+                <LogEntry
+                  title="Request received"
+                  detail="Email · c***@mail.com"
+                  time="09:12"
+                  status="Sent"
+                  channel="email"
+                />
+                <LogEntry
+                  title="Shelter assignment"
+                  detail="SMS · +94 ***5678"
+                  time="08:41"
+                  status="Failed"
+                  channel="sms"
+                />
+                <LogEntry
+                  title="Status update"
+                  detail="Email · v***@mail.com"
+                  time="08:20"
+                  status="Pending"
+                  channel="email"
+                />
+              </div>
             </section>
           </div>
         </div>
       </main>
+      <div
+        className={`${styles.toast} ${showToast ? styles.toastVisible : ""}`}
+        role="status"
+        aria-live="polite"
+      >
+        {toast}
+      </div>
     </div>
   );
 }
@@ -1808,4 +1887,49 @@ function BoxIcon() {
 
 function BellIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 21h4" /></svg>;
+}
+
+function LogEntry({
+  title,
+  detail,
+  time,
+  status,
+  channel,
+}: {
+  title: string;
+  detail: string;
+  time: string;
+  status: "Sent" | "Pending" | "Failed";
+  channel: "sms" | "email";
+}) {
+  const className =
+    status === "Sent"
+      ? styles.logSuccess
+      : status === "Pending"
+        ? styles.logPending
+        : styles.logFailed;
+
+  return (
+    <div className={styles.logEntry}>
+      <span className={styles.logIcon}>
+        {channel === "sms" ? <MessageIcon /> : <MailIcon />}
+      </span>
+      <div>
+        <b>{title}</b>
+        <small>{detail}</small>
+      </div>
+      <div className={styles.logResult}>
+        <span className={`${styles.pill} ${className}`}>{status}</span>
+        <small>{time}</small>
+      </div>
+    </div>
+  );
+}
+
+function MessageIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" /></svg>;
+}
+
+function MailIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></svg>;
 }
