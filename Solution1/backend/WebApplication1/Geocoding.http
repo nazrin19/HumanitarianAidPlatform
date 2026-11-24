@@ -1,0 +1,21 @@
+@baseUrl = http://localhost:5001
+@accessToken = replace-with-bearer-token
+
+### Forward geocode a location description
+POST {{baseUrl}}/api/geocoding/forward
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "query": "Colombo, Sri Lanka"
+}
+
+### Reverse geocode coordinates
+POST {{baseUrl}}/api/geocoding/reverse
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "latitude": 6.9271,
+  "longitude": 79.8612
+}

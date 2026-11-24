@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   CSSProperties,
+  type FormEvent,
   useEffect,
   useMemo,
   useRef,
@@ -17,17 +18,22 @@ import {
   clearSessionCredentials,
   useSessionRole,
 } from "../lib/auth-session";
+import { forwardGeocode } from "../lib/geocoding";
 import styles from "./page.module.css";
+import mapStyles from "./LiveAidMap.module.css";
 import type {
+  MapGeocodedPoint,
+  MapMarkerType,
   MapRequestPoint,
   MapShelterPoint,
   MapResourcePoint,
   MapSelection,
 } from "./LiveAidMap";
+import type { GeocodingCandidate } from "../lib/geocoding";
 
 const LiveAidMap = dynamic(() => import("./LiveAidMap"), {
   ssr: false,
-  loading: () => <div className={styles.mapLoading}>Loading map…</div>,
+  loading: () => <div className={mapStyles.mapLoading}>Loading map…</div>,
 });
 
 type Urgency = "Critical" | "High" | "Medium" | "Low";
@@ -306,8 +312,33 @@ export default function DashboardPage() {
     longitude: number;
   } | null>(null);
   const [locationMessage, setLocationMessage] = useState("");
+  const [locationQuery, setLocationQuery] = useState("");
+  const [geocodingFeedback, setGeocodingFeedback] = useState<{
+    kind: "status" | "error";
+    message: string;
+    details?: string[];
+  } | null>(null);
+  const [geocodingCandidates, setGeocodingCandidates] = useState<
+    GeocodingCandidate[]
+  >([]);
+  const [geocodedLocation, setGeocodedLocation] =
+    useState<MapGeocodedPoint | null>(null);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const geocodingController = useRef<AbortController | null>(null);
   const mapCardRef = useRef<HTMLElement>(null);
   const normalizedQuery = query.trim().toLowerCase();
+  const normalizedLocationQuery = locationQuery.trim();
+  const isLocationQueryValid =
+    normalizedLocationQuery.length >= 4 &&
+    normalizedLocationQuery.length <= 300;
+
+  useEffect(() => {
+    return () => {
+      const controller = geocodingController.current;
+      geocodingController.current = null;
+      controller?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -517,9 +548,8 @@ export default function DashboardPage() {
   const visibleRequests = useMemo(
     () =>
       requests
-        .map((request, index) => ({ request, index }))
         .filter(
-          ({ request }) =>
+          (request) =>
         (urgency === "all" ||
           (urgency === "unassessed"
             ? request.lvl === null
@@ -542,23 +572,22 @@ export default function DashboardPage() {
   const mapRequests = useMemo<MapRequestPoint[]>(
     () =>
       accountRole !== "Citizen" && layers.req
-        ? visibleRequests
-            .flatMap(({ request }) => {
-              if (!hasValidCoordinates(request)) return [];
-              return [
-                {
-                  index: requests.findIndex((item) => item.id === request.id),
-                  id: request.id,
-                  category: request.cat,
-                  latitude: request.latitude,
-                  longitude: request.longitude,
-                  urgency: request.lvl,
-                  status: request.st,
-                },
-              ];
-            })
+        ? visibleRequests.flatMap((request) => {
+            if (!hasValidCoordinates(request)) return [];
+            return [
+              {
+                id: request.id,
+                category: request.cat,
+                address: request.address,
+                latitude: request.latitude,
+                longitude: request.longitude,
+                urgency: request.lvl,
+                status: request.st,
+              },
+            ];
+          })
         : [],
-    [accountRole, layers.req, requests, visibleRequests],
+    [accountRole, layers.req, visibleRequests],
   );
   const mapShelterPoints = useMemo<MapShelterPoint[]>(
     () =>
@@ -580,7 +609,6 @@ export default function DashboardPage() {
               }
               return [
                 {
-                  index: shelters.findIndex((item) => item.id === shelter.id),
                   id: shelter.id,
                   name: shelter.n,
                   latitude: shelter.latitude,
@@ -591,12 +619,12 @@ export default function DashboardPage() {
               ];
             })
         : [],
-    [accountRole, layers.sh, matchingShelters, shelters, userLocation],
+    [accountRole, layers.sh, matchingShelters, userLocation],
   );
   const mapResourcePoints = useMemo<MapResourcePoint[]>(
     () =>
       accountRole === "Citizen" && layers.res
-        ? depots.flatMap((resource, index) => {
+        ? depots.flatMap((resource) => {
             if (!hasValidCoordinates(resource)) return [];
             if (
               userLocation &&
@@ -611,7 +639,6 @@ export default function DashboardPage() {
             }
             return [
               {
-                index,
                 id: resource.id,
                 name: resource.n,
                 category: resource.item,
@@ -625,11 +652,17 @@ export default function DashboardPage() {
     [accountRole, depots, layers.res, userLocation],
   );
   const selectedRequest =
-    selection?.type === "req" ? requests[selection.index] : undefined;
+    selection?.type === "request"
+      ? requests.find((request) => request.id === selection.id)
+      : undefined;
   const selectedShelter =
-    selection?.type === "sh" ? shelters[selection.index] : undefined;
+    selection?.type === "shelter"
+      ? shelters.find((shelter) => shelter.id === selection.id)
+      : undefined;
   const selectedDepot =
-    selection?.type === "res" ? depots[selection.index] : undefined;
+    selection?.type === "resource"
+      ? depots.find((resource) => resource.id === selection.id)
+      : undefined;
   const urgentRequestCount = requests.filter(
     (request) => request.lvl === "Critical" || request.lvl === "High",
   ).length;
@@ -775,11 +808,169 @@ export default function DashboardPage() {
     );
   }
 
+  async function lookupMapLocation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!isLocationQueryValid) {
+      setGeocodingFeedback({
+        kind: "error",
+        message: "Enter a location between 4 and 300 characters.",
+      });
+      return;
+    }
+
+    geocodingController.current?.abort();
+    const controller = new AbortController();
+    geocodingController.current = controller;
+    setIsGeocoding(true);
+    setGeocodingFeedback({
+      kind: "status",
+      message: "Searching for the location…",
+    });
+    setGeocodingCandidates([]);
+    setGeocodedLocation(null);
+
+    try {
+      const accessToken = window.sessionStorage.getItem("authToken") ?? undefined;
+      if (!accessToken) {
+        clearSessionCredentials();
+        setIsRedirecting(true);
+        router.replace("/login");
+        return;
+      }
+      const outcome = await forwardGeocode(normalizedLocationQuery, {
+        accessToken,
+        signal: controller.signal,
+      });
+      if (geocodingController.current !== controller) return;
+
+      if (outcome.kind === "unauthorized") {
+        clearSessionCredentials();
+        setIsRedirecting(true);
+        router.replace("/login");
+      } else if (outcome.kind === "forbidden") {
+        setGeocodingFeedback({
+          kind: "error",
+          message:
+            "You do not have permission to search for locations with this account.",
+        });
+      } else if (
+        outcome.kind === "found" &&
+        outcome.result &&
+        hasValidCoordinates(outcome.result)
+      ) {
+        const label = outcome.result.displayAddress ?? normalizedLocationQuery;
+        setGeocodedLocation({
+          latitude: outcome.result.latitude,
+          longitude: outcome.result.longitude,
+          label,
+        });
+        setGeocodingFeedback({
+          kind: "status",
+          message: `Showing ${label} on the map.`,
+        });
+      } else if (outcome.kind === "ambiguous" && outcome.result) {
+        const candidates = outcome.result.candidates.filter(
+          hasValidCoordinates,
+        );
+        setGeocodingCandidates(candidates);
+        setGeocodingFeedback({
+          kind: candidates.length > 0 ? "status" : "error",
+          message:
+            candidates.length > 0
+              ? "Choose a matching location to preview it on the map."
+              : "The geocoder returned no valid location candidates.",
+        });
+      } else if (outcome.kind === "cancelled") {
+        setGeocodingFeedback({
+          kind: "status",
+          message: outcome.message ?? "Location search cancelled.",
+        });
+      } else {
+        const resultMessage =
+          "result" in outcome ? outcome.result?.errorMessage : null;
+        const details =
+          outcome.kind === "validationError"
+            ? Object.entries(outcome.errors).flatMap(([field, messages]) =>
+                messages.map((message) => `${field}: ${message}`),
+              )
+            : undefined;
+        setGeocodingFeedback({
+          kind: "error",
+          message:
+            outcome.message ??
+            resultMessage ??
+            "The location could not be found. Try a more specific search.",
+          details,
+        });
+      }
+    } catch (error) {
+      if (geocodingController.current === controller) {
+        const wasCancelled =
+          error instanceof DOMException && error.name === "AbortError";
+        setGeocodingFeedback({
+          kind: wasCancelled ? "status" : "error",
+          message: wasCancelled
+            ? "Location search cancelled."
+            : error instanceof Error
+              ? error.message
+              : "Unable to search for this location.",
+        });
+      }
+    } finally {
+      if (geocodingController.current === controller) {
+        geocodingController.current = null;
+        setIsGeocoding(false);
+      }
+    }
+  }
+
+  function cancelMapLocationLookup() {
+    const controller = geocodingController.current;
+    if (!controller) return;
+
+    geocodingController.current = null;
+    controller.abort();
+    setIsGeocoding(false);
+    setGeocodingFeedback({
+      kind: "status",
+      message: "Location search cancelled.",
+    });
+  }
+
+  function chooseGeocodingCandidate(candidate: GeocodingCandidate) {
+    if (!hasValidCoordinates(candidate)) {
+      setGeocodingFeedback({
+        kind: "error",
+        message: "This candidate has invalid coordinates.",
+      });
+      return;
+    }
+    setGeocodedLocation({
+      latitude: candidate.latitude,
+      longitude: candidate.longitude,
+      label: candidate.displayAddress,
+    });
+    setGeocodingCandidates([]);
+    setGeocodingFeedback({
+      kind: "status",
+      message: `Showing ${candidate.displayAddress} on the map.`,
+    });
+  }
+
   function selectItem(type: Layer, index: number, focusMap = false) {
-    setSelection({ type, index });
+    const item =
+      type === "req"
+        ? requests[index]
+        : type === "sh"
+          ? shelters[index]
+          : depots[index];
+    if (!item) return;
+
+    const selectionType: MapMarkerType =
+      type === "req" ? "request" : type === "sh" ? "shelter" : "resource";
+    setSelection({ type: selectionType, id: item.id });
     setLayers((current) => ({ ...current, [type]: true }));
     if (focusMap) {
-      const item = type === "req" ? requests[index] : shelters[index];
       if (hasValidCoordinates(item)) {
         mapInstance?.flyTo(
           [item.latitude, item.longitude],
@@ -788,6 +979,18 @@ export default function DashboardPage() {
       }
       mapCardRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
+  }
+
+  function selectMapItem(type: MapMarkerType, id: string) {
+    const layer: Layer =
+      type === "request" ? "req" : type === "shelter" ? "sh" : "res";
+    const index =
+      type === "request"
+        ? requests.findIndex((request) => request.id === id)
+        : type === "shelter"
+          ? shelters.findIndex((shelter) => shelter.id === id)
+          : depots.findIndex((resource) => resource.id === id);
+    if (index >= 0) selectItem(layer, index);
   }
 
   function showAllRequests() {
@@ -801,6 +1004,15 @@ export default function DashboardPage() {
   }
 
   const totalRequestPages = Math.max(1, Math.ceil(totalRequestCount / 100));
+  const mapLoading =
+    (accountRole !== "Citizen" && layers.req && isLoadingRequests) ||
+    (layers.sh && isLoadingShelters) ||
+    (accountRole === "Citizen" && layers.res && isLoadingResources);
+  const mapError = [
+    accountRole !== "Citizen" && layers.req ? requestLoadError : "",
+    layers.sh ? shelterLoadError : "",
+    accountRole === "Citizen" && layers.res ? resourceLoadError : "",
+  ].filter(Boolean).join(" ");
   const countText = [
     accountRole !== "Citizen" && layers.req
       ? `${mapRequests.length} mapped requests (page ${requestPage} of ${totalRequestPages})`
@@ -970,11 +1182,132 @@ export default function DashboardPage() {
                 {accountRole === "Citizen"
                   ? locationMessage ||
                     `${mapShelterPoints.length} shelters · ${mapResourcePoints.length} resources`
-                  : requestLoadError
+                  : layers.req && requestLoadError
                   ? "Requests unavailable"
                   : countText || "No map layers selected"}
               </span>
             </div>
+            <form
+              className={mapStyles.locationLookup}
+              onSubmit={lookupMapLocation}
+            >
+              <label
+                className={mapStyles.lookupLabel}
+                htmlFor="map-location-query"
+              >
+                Preview a searched location
+              </label>
+              <div className={mapStyles.lookupRow}>
+                <input
+                  id="map-location-query"
+                  className={mapStyles.lookupInput}
+                  type="search"
+                  value={locationQuery}
+                  maxLength={300}
+                  disabled={isGeocoding}
+                  aria-invalid={
+                    locationQuery.length > 0 && !isLocationQueryValid
+                  }
+                  aria-describedby={
+                    geocodingFeedback?.details?.length
+                      ? "map-location-query-hint map-location-query-errors"
+                      : "map-location-query-hint"
+                  }
+                  placeholder="Enter an address or place"
+                  onChange={(event) => {
+                    setLocationQuery(event.target.value);
+                    setGeocodingFeedback(null);
+                    setGeocodingCandidates([]);
+                    setGeocodedLocation(null);
+                  }}
+                />
+                <button
+                  className={mapStyles.lookupButton}
+                  type="submit"
+                  disabled={isGeocoding || !isLocationQueryValid}
+                >
+                  {isGeocoding ? "Searching…" : "Find location"}
+                </button>
+                {isGeocoding && (
+                  <button
+                    className={mapStyles.cancelButton}
+                    type="button"
+                    onClick={cancelMapLocationLookup}
+                  >
+                    Cancel
+                  </button>
+                )}
+                {geocodedLocation && (
+                  <button
+                    className={mapStyles.clearButton}
+                    type="button"
+                    onClick={() => {
+                      setGeocodedLocation(null);
+                      setGeocodingFeedback({
+                        kind: "status",
+                        message: "Location preview cleared.",
+                      });
+                    }}
+                  >
+                    Clear preview
+                  </button>
+                )}
+              </div>
+              <p
+                id="map-location-query-hint"
+                className={mapStyles.lookupHint}
+                aria-live="polite"
+              >
+                {isLocationQueryValid
+                  ? "Search accepts 4-300 characters."
+                  : "Enter a location between 4 and 300 characters."}
+              </p>
+              {geocodingFeedback?.kind === "error" && (
+                <div className={mapStyles.lookupError} role="alert">
+                  <p className={mapStyles.lookupMessage}>
+                    {geocodingFeedback.message}
+                  </p>
+                  {geocodingFeedback.details &&
+                    geocodingFeedback.details.length > 0 && (
+                      <ul
+                        id="map-location-query-errors"
+                        className={mapStyles.lookupErrorDetails}
+                      >
+                        {geocodingFeedback.details.map((detail, index) => (
+                          <li key={`${detail}-${index}`}>{detail}</li>
+                        ))}
+                      </ul>
+                    )}
+                </div>
+              )}
+              {geocodingFeedback?.kind === "status" && (
+                <p
+                  className={mapStyles.lookupMessage}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {geocodingFeedback.message}
+                </p>
+              )}
+              {geocodingCandidates.length > 0 && (
+                <ul
+                  className={mapStyles.candidateList}
+                  aria-label="Matching locations"
+                >
+                  {geocodingCandidates.map((candidate, index) => (
+                    <li key={`${candidate.latitude},${candidate.longitude},${index}`}>
+                      <button
+                        className={mapStyles.candidateButton}
+                        type="button"
+                        onClick={() => chooseGeocodingCandidate(candidate)}
+                      >
+                        {candidate.displayAddress}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </form>
             <div className={styles.mapBox}>
               <LiveAidMap
                 mode={accountRole === "Citizen" ? "citizen" : "staff"}
@@ -982,19 +1315,18 @@ export default function DashboardPage() {
                 shelters={mapShelterPoints}
                 resources={mapResourcePoints}
                 selection={selection}
-                onSelect={(type, index) => selectItem(type, index)}
+                onSelect={selectMapItem}
                 onMapReady={setMapInstance}
-              />
-              {!requestLoadError &&
-                mapRequests.length === 0 &&
-                mapShelterPoints.length === 0 &&
-                mapResourcePoints.length === 0 && (
-                <div className={styles.mapEmpty} role="status">
-                  {accountRole === "Citizen"
+                userLocation={userLocation}
+                geocodedLocation={geocodedLocation}
+                isLoading={mapLoading}
+                error={mapError || null}
+                emptyMessage={
+                  accountRole === "Citizen"
                     ? "No nearby mapped shelters or resources are available."
-                    : "No visible requests or shelters have saved map coordinates."}
-                </div>
-              )}
+                    : "No visible requests or shelters have saved map coordinates."
+                }
+              />
               {selection && (
                 <div className={styles.info} role="dialog" aria-label="Map item details">
                   <button
@@ -1173,18 +1505,18 @@ export default function DashboardPage() {
                       .slice()
                       .sort(
                         (a, b) =>
-                          Date.parse(b.request.createdAt) -
-                          Date.parse(a.request.createdAt),
+                          Date.parse(b.createdAt) -
+                          Date.parse(a.createdAt),
                       )
-                      .map(({ request, index }) => {
+                      .map((request) => {
                         const markerColor = request.lvl
                           ? urgencyColors[request.lvl]
                           : "#718096";
                         return (
                           <tr
                             className={
-                              selection?.type === "req" &&
-                              selection.index === index
+                              selection?.type === "request" &&
+                              selection.id === request.id
                                 ? styles.highlightedRow
                                 : ""
                             }

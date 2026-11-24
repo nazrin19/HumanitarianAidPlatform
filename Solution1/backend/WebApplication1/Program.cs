@@ -26,10 +26,12 @@ using Microsoft.IdentityModel.Tokens;
 using HumanitarianAidPlatform.Application.Campaigns;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Campaigns;
 using HumanitarianAidPlatform.Application.Donations;
+using HumanitarianAidPlatform.Application.Geocoding;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Donations;
 using System;
 using System.Text;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Options;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -155,9 +157,45 @@ builder.Services.AddScoped<IDonationService, DonationService>();
 builder.Services.AddScoped<IVolunteerTaskRepository, VolunteerTaskRepository>();
 builder.Services.AddScoped<IVolunteerTaskService, VolunteerTaskService>();
 
+// Nominatim provider configuration and typed HTTP client
+builder.Services.AddOptions<NominatimOptions>()
+    .Bind(builder.Configuration.GetSection(NominatimOptions.SectionName))
+    .Validate(
+        options =>
+            Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var baseUri) &&
+            baseUri.Scheme == Uri.UriSchemeHttps &&
+            !string.IsNullOrWhiteSpace(options.UserAgent) &&
+            options.UserAgent.Contains('@') &&
+            options.TimeoutSeconds is >= 1 and <= 120 &&
+            options.MaximumCandidates is >= 2 and <= 10 &&
+            options.MaximumRetries is >= 0 and <= 2,
+        "Nominatim configuration requires an HTTPS base URL, a contact-bearing User-Agent, a 1-120 second timeout, 2-10 candidates, and 0-2 retries.")
+    .ValidateOnStart();
+
+// HttpClientFactory logs request URIs, which contain user-entered location text.
+builder.Logging.AddFilter(
+    "System.Net.Http.HttpClient.IGeocodingService",
+    LogLevel.None);
+
+builder.Services.AddHttpClient<IGeocodingService, MappingClient>(
+    (serviceProvider, client) =>
+    {
+        var options = serviceProvider
+            .GetRequiredService<IOptions<NominatimOptions>>()
+            .Value;
+        client.BaseAddress = new Uri(
+            options.BaseUrl.EndsWith("/", StringComparison.Ordinal)
+                ? options.BaseUrl
+                : $"{options.BaseUrl}/",
+            UriKind.Absolute);
+        client.Timeout = Timeout.InfiniteTimeSpan;
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
+    });
+
 // Notification services
-builder.Services.AddScoped<EmailSender>();
-builder.Services.AddScoped<SmsSender>();
+builder.Services.AddSingleton<NotificationDeliveryDeduplicator>();
+builder.Services.AddScoped<IEmailSender, EmailSender>();
+builder.Services.AddScoped<ISmsSender, SmsSender>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 
 var app = builder.Build();

@@ -1,27 +1,39 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleMarker,
   MapContainer,
+  Marker,
   Popup,
   TileLayer,
   useMap,
 } from "react-leaflet";
-import type { LatLngTuple, Map as LeafletMapInstance } from "leaflet";
+import { divIcon } from "leaflet";
+import type {
+  LatLngTuple,
+  Map as LeafletMapInstance,
+  TileErrorEvent,
+  TileEvent,
+} from "leaflet";
+import styles from "./LiveAidMap.module.css";
 
 export type MapRequestPoint = {
-  index: number;
   id: string;
   category: string;
+  address?: string | null;
   latitude: number;
   longitude: number;
   urgency: string | null;
   status: string;
 };
 
+export type MapUserLocation = {
+  latitude: number;
+  longitude: number;
+};
+
 export type MapShelterPoint = {
-  index: number;
   id: string;
   name: string;
   latitude: number;
@@ -31,7 +43,6 @@ export type MapShelterPoint = {
 };
 
 export type MapResourcePoint = {
-  index: number;
   id: string;
   name: string;
   category: string;
@@ -40,18 +51,31 @@ export type MapResourcePoint = {
   longitude: number;
 };
 
+export type MapGeocodedPoint = {
+  latitude: number;
+  longitude: number;
+  label: string;
+};
+
+export type MapMarkerType = "request" | "shelter" | "resource";
+
 export type MapSelection =
-  | { type: "req" | "sh" | "res"; index: number }
+  | { type: MapMarkerType; id: string }
   | null;
 
-type Props = {
+export type LiveAidMapProps = {
   mode: "staff" | "citizen";
   requests: MapRequestPoint[];
   shelters: MapShelterPoint[];
   resources: MapResourcePoint[];
   selection: MapSelection;
-  onSelect: (type: "req" | "sh" | "res", index: number) => void;
+  onSelect: (type: MapMarkerType, id: string) => void;
   onMapReady: (map: LeafletMapInstance | null) => void;
+  userLocation?: MapUserLocation | null;
+  geocodedLocation?: MapGeocodedPoint | null;
+  isLoading?: boolean;
+  error?: string | null;
+  emptyMessage?: string;
 };
 
 const defaultCenter: LatLngTuple = [7.8731, 80.7718];
@@ -61,8 +85,19 @@ const urgencyColors: Record<string, string> = {
   Medium: "#F29900",
   Low: "#1FA463",
 };
+const geocodedLocationIcon = divIcon({
+  className: styles.geocodedLocationIcon,
+  html: "<span></span>",
+  iconSize: [24, 36],
+  iconAnchor: [12, 36],
+  popupAnchor: [0, -32],
+});
 
-function MapReady({ onMapReady }: { onMapReady: Props["onMapReady"] }) {
+function MapReady({
+  onMapReady,
+}: {
+  onMapReady: LiveAidMapProps["onMapReady"];
+}) {
   const map = useMap();
 
   useEffect(() => {
@@ -99,8 +134,15 @@ export default function LiveAidMap({
   selection,
   onSelect,
   onMapReady,
-}: Props) {
-  const points = useMemo(
+  userLocation = null,
+  geocodedLocation = null,
+  isLoading = false,
+  error = null,
+  emptyMessage = "No mapped locations are available.",
+}: LiveAidMapProps) {
+  const failedTiles = useRef(new Set<HTMLImageElement>());
+  const [failedTileCount, setFailedTileCount] = useState(0);
+  const aidPoints = useMemo(
     () =>
       [
         ...(mode === "staff"
@@ -112,20 +154,58 @@ export default function LiveAidMap({
         ...shelters.map(
           (shelter) => [shelter.latitude, shelter.longitude] as LatLngTuple,
         ),
-        ...resources.map(
-          (resource) =>
-            [resource.latitude, resource.longitude] as LatLngTuple,
-        ),
+        ...(mode === "citizen"
+          ? resources.map(
+              (resource) =>
+                [resource.latitude, resource.longitude] as LatLngTuple,
+            )
+          : []),
       ],
     [mode, requests, shelters, resources],
   );
+  const points = useMemo(
+    () => [
+      ...(userLocation
+        ? [[userLocation.latitude, userLocation.longitude] as LatLngTuple]
+        : []),
+      ...(geocodedLocation
+        ? [[geocodedLocation.latitude, geocodedLocation.longitude] as LatLngTuple]
+        : []),
+      ...aidPoints,
+    ],
+    [aidPoints, geocodedLocation, userLocation],
+  );
+  const tileError = failedTileCount > 0;
+  function removeFailedTile(tile: HTMLImageElement) {
+    if (failedTiles.current.delete(tile)) {
+      setFailedTileCount(failedTiles.current.size);
+    }
+  }
+  function handleTileError(event: TileErrorEvent) {
+    failedTiles.current.add(event.tile);
+    setFailedTileCount(failedTiles.current.size);
+  }
+  function handleTileLoad(event: TileEvent) {
+    removeFailedTile(event.tile);
+  }
+  function handleTileUnload(event: TileEvent) {
+    removeFailedTile(event.tile);
+  }
+  const notice = tileError
+    ? "Map tiles could not be loaded. Check your connection and try again."
+    : error ||
+      (isLoading
+        ? "Loading map locations…"
+        : aidPoints.length === 0
+          ? emptyMessage
+          : "");
 
   return (
     <MapContainer
       center={defaultCenter}
       zoom={7}
       scrollWheelZoom
-      className="liveAidLeafletMap"
+      className={styles.map}
     >
       <MapReady onMapReady={onMapReady} />
       <FitMapToPoints points={points} />
@@ -133,10 +213,43 @@ export default function LiveAidMap({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         maxZoom={19}
+        eventHandlers={{
+          tileerror: handleTileError,
+          tileload: handleTileLoad,
+          tileunload: handleTileUnload,
+        }}
       />
+      {userLocation && (
+        <CircleMarker
+          center={[userLocation.latitude, userLocation.longitude]}
+          radius={9}
+          pathOptions={{
+            color: "#fff",
+            weight: 3,
+            fillColor: "#246BCE",
+            fillOpacity: 1,
+          }}
+        >
+          <Popup>
+            <strong>You are here</strong>
+          </Popup>
+        </CircleMarker>
+      )}
+      {geocodedLocation && (
+        <Marker
+          position={[geocodedLocation.latitude, geocodedLocation.longitude]}
+          icon={geocodedLocationIcon}
+        >
+          <Popup>
+            <strong>Location preview</strong>
+            <br />
+            {geocodedLocation.label}
+          </Popup>
+        </Marker>
+      )}
       {mode === "staff" && requests.map((request) => {
         const selected =
-          selection?.type === "req" && selection.index === request.index;
+          selection?.type === "request" && selection.id === request.id;
         const color = urgencyColors[request.urgency ?? ""] ?? "#718096";
 
         return (
@@ -151,11 +264,17 @@ export default function LiveAidMap({
               fillOpacity: 0.9,
             }}
             eventHandlers={{
-              click: () => onSelect("req", request.index),
+              click: () => onSelect("request", request.id),
             }}
           >
             <Popup>
               <strong>Request · {request.category}</strong>
+              {request.address?.trim() && (
+                <>
+                  <br />
+                  {request.address}
+                </>
+              )}
               <br />
               Urgency: {request.urgency ?? "Not assessed"}
               <br />
@@ -164,9 +283,18 @@ export default function LiveAidMap({
           </CircleMarker>
         );
       })}
+      {notice && (
+        <div
+          className={`${styles.mapNotice}${tileError || error ? ` ${styles.mapNoticeError}` : ""}`}
+          role={tileError || error ? "alert" : "status"}
+          aria-live="polite"
+        >
+          {notice}
+        </div>
+      )}
       {mode === "citizen" && resources.map((resource) => {
         const selected =
-          selection?.type === "res" && selection.index === resource.index;
+          selection?.type === "resource" && selection.id === resource.id;
 
         return (
           <CircleMarker
@@ -180,7 +308,7 @@ export default function LiveAidMap({
               fillOpacity: 0.9,
             }}
             eventHandlers={{
-              click: () => onSelect("res", resource.index),
+              click: () => onSelect("resource", resource.id),
             }}
           >
             <Popup>
@@ -193,7 +321,7 @@ export default function LiveAidMap({
       })}
       {shelters.map((shelter) => {
         const selected =
-          selection?.type === "sh" && selection.index === shelter.index;
+          selection?.type === "shelter" && selection.id === shelter.id;
         const occupancy =
           shelter.capacity > 0
             ? Math.round(
@@ -214,7 +342,7 @@ export default function LiveAidMap({
               fillOpacity: 0.9,
             }}
             eventHandlers={{
-              click: () => onSelect("sh", shelter.index),
+              click: () => onSelect("shelter", shelter.id),
             }}
           >
             <Popup>

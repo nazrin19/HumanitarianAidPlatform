@@ -167,6 +167,17 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
+        modelBuilder.Entity<Notification>(n =>
+        {
+            n.Property(x => x.Channel)
+                .HasConversion(
+                    channel => ConvertNotificationChannelToDatabase(channel),
+                    value => ConvertNotificationChannelFromDatabase(value))
+                .HasColumnName("Type")
+                .HasMaxLength(30)
+                .IsRequired();
+        });
+
         // User configuration
         modelBuilder.Entity<User>(u =>
         {
@@ -309,7 +320,28 @@ public class AppDbContext : DbContext
             t.HasOne(x => x.Volunteer).WithMany(x => x.Tasks)
                 .HasForeignKey(x => x.VolunteerId).OnDelete(DeleteBehavior.SetNull);
         });
+    }
 
-      
+    private static string ConvertNotificationChannelToDatabase(NotificationChannel channel)
+    {
+        return channel switch
+        {
+            NotificationChannel.Email => "Email",
+            NotificationChannel.Sms => "SMS",
+            NotificationChannel.InApp => "InApp",
+            _ => "Unknown"
+        };
+    }
+
+    private static NotificationChannel ConvertNotificationChannelFromDatabase(string value)
+    {
+        if (value.Equals("SMS", StringComparison.OrdinalIgnoreCase))
+        {
+            return NotificationChannel.Sms;
+        }
+
+        return Enum.TryParse<NotificationChannel>(value, true, out var channel)
+            ? channel
+            : NotificationChannel.Unknown;
     }
 }
