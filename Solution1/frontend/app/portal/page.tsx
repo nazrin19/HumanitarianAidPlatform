@@ -177,12 +177,13 @@ export default function PortalPage() {
     setError("");
     setNotice("");
     try {
-      await postJson("/api/campaigns", {
+      const created = await postJson("/api/campaigns", {
         name: String(form.get("name")),
         description: String(form.get("description") || ""),
         targetAmount: Number(form.get("targetAmount")),
         startDate: String(form.get("startDate")),
-      });
+      }) as Campaign;
+      setCampaigns((current) => [created, ...current]);
       setNotice("Campaign created.");
       event.currentTarget.reset();
     } catch (actionError) {
@@ -196,12 +197,13 @@ export default function PortalPage() {
     setError("");
     setNotice("");
     try {
-      await postJson("/api/volunteer-tasks", {
+      const created = await postJson("/api/volunteer-tasks", {
         title: String(form.get("title")),
         description: String(form.get("description") || ""),
         location: String(form.get("location") || ""),
         dueDate: String(form.get("dueDate") || "") || null,
-      });
+      }) as VolunteerTask;
+      setTasks((current) => [created, ...current]);
       setNotice("Volunteer task created.");
       event.currentTarget.reset();
     } catch (actionError) {
@@ -215,13 +217,14 @@ export default function PortalPage() {
     setError("");
     setNotice("");
     try {
-      await postJson("/api/shelters", {
+      const created = await postJson("/api/shelters", {
         name: String(form.get("name")),
         capacity: Number(form.get("capacity")),
         currentOccupancy: Number(form.get("occupancy")),
         latitude: null,
         longitude: null,
-      });
+      }) as Shelter;
+      setShelters((current) => [created, ...current]);
       setNotice("Shelter created.");
       event.currentTarget.reset();
     } catch (actionError) {
@@ -235,7 +238,7 @@ export default function PortalPage() {
     setError("");
     setNotice("");
     try {
-      await postJson("/api/resources", {
+      const created = await postJson("/api/resources", {
         id: "00000000-0000-0000-0000-000000000000",
         name: String(form.get("name")),
         category: String(form.get("category")),
@@ -243,7 +246,8 @@ export default function PortalPage() {
         description: String(form.get("description") || ""),
         latitude: null,
         longitude: null,
-      });
+      }) as Resource;
+      setResources((current) => [created, ...current]);
       setNotice("Resource created.");
       event.currentTarget.reset();
     } catch (actionError) {

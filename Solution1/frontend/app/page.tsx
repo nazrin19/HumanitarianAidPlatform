@@ -255,7 +255,7 @@ export default function Home() {
                   </svg>
                 </div>
                 <h3>Donate</h3>
-                <p>Apply for a donor account. Donation management is not available yet.</p>
+                <p>Apply for a donor account and support relief campaigns.</p>
                 <Link
                   className={`${styles.button} ${styles.solid} ${styles.small}`}
                   href="/signup/donor"
@@ -270,7 +270,7 @@ export default function Home() {
                   </svg>
                 </div>
                 <h3>Partner organisation</h3>
-                <p>Partner organisation registration is not available yet.</p>
+                <p>Contact the platform administrator to arrange a partner organisation account.</p>
               </article>
             </div>
           </div>
@@ -307,7 +307,7 @@ export default function Home() {
             </div>
             <div>
               <h5>Newsletter</h5>
-              <p>Newsletter subscriptions are not available yet. Create a platform account to get started.</p>
+              <p>Create a platform account to receive updates through your role-specific portal.</p>
               <Link className={styles.newsletterLink} href="/signup">Create an account</Link>
             </div>
           </div>

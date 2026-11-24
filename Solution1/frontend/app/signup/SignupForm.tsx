@@ -426,8 +426,8 @@ export default function SignupForm({
                 />
                 <span>
                   By creating an account, you agree to the{" "}
-                  <a href="#terms">Terms of Service</a> and{" "}
-                  <a href="#privacy">Privacy Policy</a>
+                  <span>Terms of Service</span> and{" "}
+                  <span>Privacy Policy</span>
                 </span>
               </label>
 

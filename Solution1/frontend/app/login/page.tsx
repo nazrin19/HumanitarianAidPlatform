@@ -202,9 +202,9 @@ export default function LoginPage() {
                 </button>
               </div>
 
-              <a className={styles.forgot} href="#forgot">
+              <span className={styles.forgot} title="Password recovery is not configured yet">
                 Forgot password?
-              </a>
+              </span>
               <div
                 className={styles.error}
                 role="alert"

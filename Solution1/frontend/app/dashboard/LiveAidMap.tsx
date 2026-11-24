@@ -1,21 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  CircleMarker,
-  MapContainer,
-  Marker,
-  Popup,
-  TileLayer,
-  useMap,
-} from "react-leaflet";
-import { divIcon } from "leaflet";
-import type {
-  LatLngTuple,
-  Map as LeafletMapInstance,
-  TileErrorEvent,
-  TileEvent,
-} from "leaflet";
+import L from "leaflet";
+import type { LatLngTuple, Map as LeafletMapInstance } from "leaflet";
 import styles from "./LiveAidMap.module.css";
 
 export type MapRequestPoint = {
@@ -58,7 +45,6 @@ export type MapGeocodedPoint = {
 };
 
 export type MapMarkerType = "request" | "shelter" | "resource";
-
 export type MapSelection =
   | { type: MapMarkerType; id: string }
   | null;
@@ -85,46 +71,6 @@ const urgencyColors: Record<string, string> = {
   Medium: "#F29900",
   Low: "#1FA463",
 };
-const geocodedLocationIcon = divIcon({
-  className: styles.geocodedLocationIcon,
-  html: "<span></span>",
-  iconSize: [24, 36],
-  iconAnchor: [12, 36],
-  popupAnchor: [0, -32],
-});
-
-function MapReady({
-  onMapReady,
-}: {
-  onMapReady: LiveAidMapProps["onMapReady"];
-}) {
-  const map = useMap();
-
-  useEffect(() => {
-    onMapReady(map);
-    return () => onMapReady(null);
-  }, [map, onMapReady]);
-
-  return null;
-}
-
-function FitMapToPoints({
-  points,
-}: {
-  points: LatLngTuple[];
-}) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (points.length === 1) {
-      map.setView(points[0], 12);
-    } else if (points.length > 1) {
-      map.fitBounds(points, { padding: [36, 36], maxZoom: 12 });
-    }
-  }, [map, points]);
-
-  return null;
-}
 
 export default function LiveAidMap({
   mode,
@@ -140,8 +86,11 @@ export default function LiveAidMap({
   error = null,
   emptyMessage = "No mapped locations are available.",
 }: LiveAidMapProps) {
-  const failedTiles = useRef(new Set<HTMLImageElement>());
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<LeafletMapInstance | null>(null);
+  const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const [failedTileCount, setFailedTileCount] = useState(0);
+
   const aidPoints = useMemo(
     () =>
       [
@@ -163,6 +112,7 @@ export default function LiveAidMap({
       ],
     [mode, requests, shelters, resources],
   );
+
   const points = useMemo(
     () => [
       ...(userLocation
@@ -175,22 +125,153 @@ export default function LiveAidMap({
     ],
     [aidPoints, geocodedLocation, userLocation],
   );
-  const tileError = failedTileCount > 0;
-  function removeFailedTile(tile: HTMLImageElement) {
-    if (failedTiles.current.delete(tile)) {
-      setFailedTileCount(failedTiles.current.size);
+
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+
+    const map = L.map(containerRef.current, {
+      center: defaultCenter,
+      zoom: 7,
+      scrollWheelZoom: true,
+    });
+    mapRef.current = map;
+    markerLayerRef.current = L.layerGroup().addTo(map);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+      maxZoom: 19,
+    })
+      .on("tileerror", () => setFailedTileCount((count) => count + 1))
+      .on("tileload", () =>
+        setFailedTileCount((count) => Math.max(0, count - 1)),
+      )
+      .addTo(map);
+
+    onMapReady(map);
+
+    return () => {
+      onMapReady(null);
+      map.remove();
+      mapRef.current = null;
+      markerLayerRef.current = null;
+    };
+  }, [onMapReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const markerLayer = markerLayerRef.current;
+    if (!map || !markerLayer) return;
+
+    markerLayer.clearLayers();
+
+    if (userLocation) {
+      L.circleMarker([userLocation.latitude, userLocation.longitude], {
+        radius: 9,
+        color: "#fff",
+        weight: 3,
+        fillColor: "#246BCE",
+        fillOpacity: 1,
+      })
+        .bindPopup("<strong>You are here</strong>")
+        .addTo(markerLayer);
     }
-  }
-  function handleTileError(event: TileErrorEvent) {
-    failedTiles.current.add(event.tile);
-    setFailedTileCount(failedTiles.current.size);
-  }
-  function handleTileLoad(event: TileEvent) {
-    removeFailedTile(event.tile);
-  }
-  function handleTileUnload(event: TileEvent) {
-    removeFailedTile(event.tile);
-  }
+
+    if (geocodedLocation) {
+      L.marker([geocodedLocation.latitude, geocodedLocation.longitude], {
+        icon: L.divIcon({
+          className: styles.geocodedLocationIcon,
+          html: "<span></span>",
+          iconSize: [24, 36],
+          iconAnchor: [12, 36],
+          popupAnchor: [0, -32],
+        }),
+      })
+        .bindPopup(
+          `<strong>Location preview</strong><br>${geocodedLocation.label}`,
+        )
+        .addTo(markerLayer);
+    }
+
+    if (mode === "staff") {
+      requests.forEach((request) => {
+        const selected =
+          selection?.type === "request" && selection.id === request.id;
+        const color = urgencyColors[request.urgency ?? ""] ?? "#718096";
+        L.circleMarker([request.latitude, request.longitude], {
+          radius: selected ? 10 : 7,
+          color: "#fff",
+          weight: selected ? 3 : 2,
+          fillColor: color,
+          fillOpacity: 0.9,
+        })
+          .on("click", () => onSelect("request", request.id))
+          .bindPopup(
+            `<strong>Request · ${request.category}</strong>${request.address?.trim() ? `<br>${request.address}` : ""}<br>Urgency: ${request.urgency ?? "Not assessed"}<br>Status: ${request.status}`,
+          )
+          .addTo(markerLayer);
+      });
+    }
+
+    if (mode === "citizen") {
+      resources.forEach((resource) => {
+        const selected =
+          selection?.type === "resource" && selection.id === resource.id;
+        L.circleMarker([resource.latitude, resource.longitude], {
+          radius: selected ? 10 : 8,
+          color: "#fff",
+          weight: selected ? 3 : 2,
+          fillColor: "#246BCE",
+          fillOpacity: 0.9,
+        })
+          .on("click", () => onSelect("resource", resource.id))
+          .bindPopup(
+            `<strong>${resource.name}</strong><br>${resource.category}: ${resource.quantityAvailable} available`,
+          )
+          .addTo(markerLayer);
+      });
+    }
+
+    shelters.forEach((shelter) => {
+      const selected =
+        selection?.type === "shelter" && selection.id === shelter.id;
+      const occupancy =
+        shelter.capacity > 0
+          ? Math.round(
+              (shelter.currentOccupancy / shelter.capacity) * 100,
+            )
+          : 0;
+      L.circleMarker([shelter.latitude, shelter.longitude], {
+        radius: selected ? 10 : 8,
+        color: "#fff",
+        weight: selected ? 3 : 2,
+        fillColor: occupancy >= 80 ? "#D93025" : "#1B6B47",
+        fillOpacity: 0.9,
+      })
+        .on("click", () => onSelect("shelter", shelter.id))
+        .bindPopup(
+          `<strong>${shelter.name}</strong><br>Occupancy: ${occupancy}% (${shelter.currentOccupancy}/${shelter.capacity})`,
+        )
+        .addTo(markerLayer);
+    });
+
+    if (points.length === 1) {
+      map.setView(points[0], 12);
+    } else if (points.length > 1) {
+      map.fitBounds(points, { padding: [36, 36], maxZoom: 12 });
+    }
+  }, [
+    geocodedLocation,
+    mode,
+    onSelect,
+    points,
+    requests,
+    resources,
+    selection,
+    shelters,
+    userLocation,
+  ]);
+
+  const tileError = failedTileCount > 0;
   const notice = tileError
     ? "Map tiles could not be loaded. Check your connection and try again."
     : error ||
@@ -201,159 +282,19 @@ export default function LiveAidMap({
           : "");
 
   return (
-    <MapContainer
-      center={defaultCenter}
-      zoom={7}
-      scrollWheelZoom
+    <div
+      ref={containerRef}
       className={styles.map}
+      aria-label="Aid locations map"
     >
-      <MapReady onMapReady={onMapReady} />
-      <FitMapToPoints points={points} />
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        maxZoom={19}
-        eventHandlers={{
-          tileerror: handleTileError,
-          tileload: handleTileLoad,
-          tileunload: handleTileUnload,
-        }}
-      />
-      {userLocation && (
-        <CircleMarker
-          center={[userLocation.latitude, userLocation.longitude]}
-          radius={9}
-          pathOptions={{
-            color: "#fff",
-            weight: 3,
-            fillColor: "#246BCE",
-            fillOpacity: 1,
-          }}
-        >
-          <Popup>
-            <strong>You are here</strong>
-          </Popup>
-        </CircleMarker>
-      )}
-      {geocodedLocation && (
-        <Marker
-          position={[geocodedLocation.latitude, geocodedLocation.longitude]}
-          icon={geocodedLocationIcon}
-        >
-          <Popup>
-            <strong>Location preview</strong>
-            <br />
-            {geocodedLocation.label}
-          </Popup>
-        </Marker>
-      )}
-      {mode === "staff" && requests.map((request) => {
-        const selected =
-          selection?.type === "request" && selection.id === request.id;
-        const color = urgencyColors[request.urgency ?? ""] ?? "#718096";
-
-        return (
-          <CircleMarker
-            key={`request-${request.id}`}
-            center={[request.latitude, request.longitude]}
-            radius={selected ? 10 : 7}
-            pathOptions={{
-              color: "#fff",
-              weight: selected ? 3 : 2,
-              fillColor: color,
-              fillOpacity: 0.9,
-            }}
-            eventHandlers={{
-              click: () => onSelect("request", request.id),
-            }}
-          >
-            <Popup>
-              <strong>Request · {request.category}</strong>
-              {request.address?.trim() && (
-                <>
-                  <br />
-                  {request.address}
-                </>
-              )}
-              <br />
-              Urgency: {request.urgency ?? "Not assessed"}
-              <br />
-              Status: {request.status}
-            </Popup>
-          </CircleMarker>
-        );
-      })}
       {notice && (
         <div
           className={`${styles.mapNotice}${tileError || error ? ` ${styles.mapNoticeError}` : ""}`}
           role={tileError || error ? "alert" : "status"}
-          aria-live="polite"
         >
           {notice}
         </div>
       )}
-      {mode === "citizen" && resources.map((resource) => {
-        const selected =
-          selection?.type === "resource" && selection.id === resource.id;
-
-        return (
-          <CircleMarker
-            key={`resource-${resource.id}`}
-            center={[resource.latitude, resource.longitude]}
-            radius={selected ? 10 : 8}
-            pathOptions={{
-              color: "#fff",
-              weight: selected ? 3 : 2,
-              fillColor: "#246BCE",
-              fillOpacity: 0.9,
-            }}
-            eventHandlers={{
-              click: () => onSelect("resource", resource.id),
-            }}
-          >
-            <Popup>
-              <strong>{resource.name}</strong>
-              <br />
-              {resource.category}: {resource.quantityAvailable} available
-            </Popup>
-          </CircleMarker>
-        );
-      })}
-      {shelters.map((shelter) => {
-        const selected =
-          selection?.type === "shelter" && selection.id === shelter.id;
-        const occupancy =
-          shelter.capacity > 0
-            ? Math.round(
-                (shelter.currentOccupancy / shelter.capacity) * 100,
-              )
-            : 0;
-        const color = occupancy >= 80 ? "#D93025" : "#1B6B47";
-
-        return (
-          <CircleMarker
-            key={`shelter-${shelter.id}`}
-            center={[shelter.latitude, shelter.longitude]}
-            radius={selected ? 10 : 8}
-            pathOptions={{
-              color: "#fff",
-              weight: selected ? 3 : 2,
-              fillColor: color,
-              fillOpacity: 0.9,
-            }}
-            eventHandlers={{
-              click: () => onSelect("shelter", shelter.id),
-            }}
-          >
-            <Popup>
-              <strong>{shelter.name}</strong>
-              <br />
-              Occupancy: {occupancy}% ({shelter.currentOccupancy}/
-              {shelter.capacity})
-            </Popup>
-          </CircleMarker>
-        );
-      })}
-    </MapContainer>
+    </div>
   );
 }
