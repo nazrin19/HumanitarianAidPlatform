@@ -49,6 +49,10 @@ public class DonorService : IDonorService
         var donor = await _repository.GetByIdAsync(id);
         if (donor is null) return null;
 
+        if (await _repository.EmailExistsAsync(dto.Email.Trim(), id))
+            throw new InvalidOperationException(
+                "A donor with this email already exists.");
+
         donor.FullName = dto.FullName.Trim();
         donor.Email = dto.Email.Trim();
         donor.Phone = dto.Phone?.Trim();
