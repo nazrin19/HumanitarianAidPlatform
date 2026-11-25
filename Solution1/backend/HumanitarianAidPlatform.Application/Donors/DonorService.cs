@@ -69,6 +69,10 @@ public class DonorService : IDonorService
         var donor = await _repository.GetByIdAsync(id);
         if (donor is null) return false;
 
+        if (await _repository.HasDonationsAsync(id))
+            throw new InvalidOperationException(
+                "This donor has donations and cannot be deleted. Deactivate the donor instead.");
+
         await _repository.DeleteAsync(donor);
         return true;
     }
