@@ -20,6 +20,7 @@ public class DonorRepository : IDonorRepository
         await _db.SaveChangesAsync();
     }
 
+
     public async Task<Donor?> GetByIdAsync(Guid id) =>
         await _db.Donors.FirstOrDefaultAsync(d => d.Id == id);
 
@@ -37,4 +38,14 @@ public class DonorRepository : IDonorRepository
         _db.Donors.Remove(donor);
         await _db.SaveChangesAsync();
     }
+
+    public async Task<bool> EmailExistsAsync(
+    string email,
+    Guid? excludeId = null) =>
+    await _db.Donors.AnyAsync(d =>
+        d.Email == email &&
+        (excludeId == null || d.Id != excludeId));
+
+    public async Task<bool> HasDonationsAsync(Guid donorId) =>
+       await _db.Donations.AnyAsync(x => x.DonorId == donorId);
 }
