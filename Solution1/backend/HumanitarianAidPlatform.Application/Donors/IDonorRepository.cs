@@ -9,4 +9,6 @@ public interface IDonorRepository
     Task<List<Donor>> GetAllAsync();
     Task UpdateAsync(Donor donor);
     Task DeleteAsync(Donor donor);
+    Task<bool> EmailExistsAsync(string email, Guid? excludeId = null);
+    Task<bool> HasDonationsAsync(Guid donorId);
 }
