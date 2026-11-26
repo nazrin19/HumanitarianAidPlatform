@@ -142,6 +142,21 @@ public sealed record NotificationDeliveryResult(
     DateTimeOffset? NextRetryAt = null,
     bool IsDuplicate = false);
 
+/// <summary>Represents a persisted notification entry returned to authorized staff.</summary>
+public sealed record NotificationHistoryItem(
+    Guid Id,
+    Guid? EventId,
+    string Recipient,
+    NotificationChannel Channel,
+    DateTimeOffset CreatedAt,
+    string Status,
+    bool Succeeded,
+    DateTimeOffset? CompletedAt,
+    Guid? CorrelationId,
+    int AttemptCount,
+    string? ErrorCode,
+    string? ErrorMessage);
+
 internal static class NotificationRequestValidation
 {
     public static IEnumerable<ValidationResult> ValidateCommon(

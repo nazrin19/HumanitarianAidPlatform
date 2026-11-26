@@ -1,10 +1,12 @@
-﻿using HumanitarianAidPlatform.Domain.Entities.Notifications;
-
 namespace HumanitarianAidPlatform.Application.Notifications;
 
 /// <summary>Provides channel-neutral delivery operations for application notifications.</summary>
 public interface INotificationService
 {
+    Task<IReadOnlyList<NotificationHistoryItem>> GetRecentAsync(
+        int limit,
+        CancellationToken cancellationToken);
+
     Task<NotificationDeliveryResult> SendAsync(
         NotificationRequest request,
         CancellationToken cancellationToken);

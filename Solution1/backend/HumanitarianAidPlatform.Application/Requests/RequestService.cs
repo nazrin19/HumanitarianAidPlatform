@@ -1,6 +1,8 @@
 ﻿using HumanitarianAidPlatform.Application.Ai;
 using HumanitarianAidPlatform.Application.Common;
+using HumanitarianAidPlatform.Application.Notifications;
 using HumanitarianAidPlatform.Domain.Entities.Requests;
+using HumanitarianAidPlatform.Domain.Entities.Notifications;
 using HumanitarianAidPlatform.Domain.Entities.Users;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -37,15 +39,26 @@ public class RequestService : IRequestService
 
     private readonly IRequestRepository _repository;
     private readonly IUrgencyClassifier _classifier;
+    private readonly INotificationService? _notificationService;
     private readonly ILogger<RequestService> _logger;
 
     public RequestService(
         IRequestRepository repository,
         IUrgencyClassifier classifier,
         ILogger<RequestService> logger)
+        : this(repository, classifier, null, logger)
+    {
+    }
+
+    public RequestService(
+        IRequestRepository repository,
+        IUrgencyClassifier classifier,
+        INotificationService? notificationService,
+        ILogger<RequestService> logger)
     {
         _repository = repository;
         _classifier = classifier;
+        _notificationService = notificationService;
         _logger = logger;
     }
 
@@ -230,6 +243,11 @@ public class RequestService : IRequestService
         };
 
         await _repository.SaveReviewAsync(history, auditLog);
+        await SendStatusNotificationSafelyAsync(
+            id,
+            history.Id,
+            targetStatus,
+            dto.Reason);
         return new ReviewResult(ReviewResultCode.Success, ToDto(request));
     }
 
@@ -250,7 +268,7 @@ public class RequestService : IRequestService
             return new ReviewResult(ReviewResultCode.InvalidTransition);
 
         var now = DateTime.UtcNow;
-        await _repository.SaveStatusChangeAsync(new RequestStatusHistory
+        var history = new RequestStatusHistory
         {
             Id = Guid.NewGuid(),
             AssistanceRequestId = id,
@@ -259,9 +277,80 @@ public class RequestService : IRequestService
             ChangedByUserId = userId,
             ChangedAt = now,
             Note = dto.Reason?.Trim()
-        });
+        };
+        await _repository.SaveStatusChangeAsync(history);
+        await SendStatusNotificationSafelyAsync(
+            id,
+            history.Id,
+            dto.Status,
+            dto.Reason);
 
         return new ReviewResult(ReviewResultCode.Success, ToDto(request));
+    }
+
+    private async Task SendStatusNotificationSafelyAsync(
+        Guid requestId,
+        Guid eventId,
+        RequestStatus status,
+        string? note)
+    {
+        if (_notificationService is null)
+        {
+            _logger.LogWarning(
+                "Assistance request {RequestId} changed to {Status}, but notification service is not configured.",
+                requestId,
+                status);
+            return;
+        }
+
+        try
+        {
+            var recipient = await _repository.GetNotificationRecipientAsync(requestId);
+            if (string.IsNullOrWhiteSpace(recipient))
+            {
+                _logger.LogWarning(
+                    "Assistance request {RequestId} changed to {Status}, but no notification recipient was found.",
+                    requestId,
+                    status);
+                return;
+            }
+
+            var result = await _notificationService.SendAssistanceRequestStatusAsync(
+                new AssistanceRequestStatusNotificationRequest
+                {
+                    EventId = eventId,
+                    Recipient = recipient,
+                    Channel = NotificationChannel.Email,
+                    AssistanceRequestId = requestId,
+                    Status = status,
+                    Note = note
+                },
+                CancellationToken.None);
+
+            if (result.Succeeded)
+            {
+                _logger.LogInformation(
+                    "Assistance request notification completed for {RequestId} with {DeliveryStatus}; correlation {CorrelationId}.",
+                    requestId,
+                    result.Status,
+                    result.CorrelationId);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Assistance request notification failed for {RequestId} with {DeliveryStatus}: {ErrorCode}. The status change remains saved.",
+                    requestId,
+                    result.Status,
+                    result.ErrorCode);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "Assistance request notification dispatch failed for {RequestId} after its status change was saved.",
+                requestId);
+        }
     }
 
     public async Task<IReadOnlyList<RequestStatusHistoryDto>?> GetHistoryAsync(Guid id, Guid requesterId, string requesterRole)

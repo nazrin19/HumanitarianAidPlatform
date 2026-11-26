@@ -340,9 +340,12 @@ public class NotificationServiceTests
     [Fact]
     public async Task InAppChannelReturnsSandboxOutcomeWithoutProviderCredentials()
     {
+        var repository = new RecordingNotificationRepository();
         var service = new NotificationService(
             new StubEmailSender(),
             new StubSmsSender(),
+            new NotificationDeliveryDeduplicator(),
+            repository,
             new RecordingLogger<NotificationService>());
 
         var result = await service.SendAsync(
@@ -358,6 +361,7 @@ public class NotificationServiceTests
         Assert.Equal(NotificationDeliveryStatus.MockSent, result.Status);
         Assert.Equal(NotificationChannel.InApp, result.Channel);
         Assert.Contains("persisted", result.ErrorMessage);
+        Assert.True(Assert.Single(repository.Notifications).IsSent);
     }
 
     [Fact]
@@ -724,6 +728,176 @@ public class NotificationServiceTests
         Assert.NotEqual(Guid.Empty, result.CorrelationId);
         Assert.True(result.AttemptCount >= 1);
         Assert.Null(result.NextRetryAt);
+    }
+
+    [Theory]
+    [InlineData(NotificationDeliveryStatus.Sent)]
+    [InlineData(NotificationDeliveryStatus.MockSent)]
+    public async Task SuccessfulAndMockDeliveriesPersistSentState(
+        NotificationDeliveryStatus deliveryStatus)
+    {
+        var completedAt = DateTimeOffset.UtcNow;
+        var repository = new RecordingNotificationRepository();
+        var emailSender = new StubEmailSender
+        {
+            Result = new NotificationDeliveryResult(
+                true,
+                deliveryStatus,
+                NotificationChannel.Email,
+                completedAt.AddSeconds(-1),
+                completedAt,
+                null,
+                "Provider result")
+        };
+        var service = new NotificationService(
+            emailSender,
+            new StubSmsSender(),
+            new NotificationDeliveryDeduplicator(),
+            repository,
+            new RecordingLogger<NotificationService>());
+        var eventId = Guid.NewGuid();
+
+        var result = await service.SendAsync(
+            new NotificationRequest
+            {
+                EventId = eventId,
+                Recipient = "citizen@example.test",
+                Subject = "Status update",
+                Message = "Approved",
+                Channel = NotificationChannel.Email
+            },
+            CancellationToken.None);
+
+        var saved = Assert.Single(repository.Notifications);
+        Assert.True(result.Succeeded);
+        Assert.True(saved.IsSent);
+        Assert.Equal(completedAt.UtcDateTime, saved.SentAt);
+        Assert.Equal(eventId, saved.EventId);
+        Assert.Equal(deliveryStatus.ToString(), saved.DeliveryStatus);
+        Assert.Equal(result.CorrelationId, saved.CorrelationId);
+        Assert.Equal(1, saved.AttemptCount);
+        Assert.Equal("Provider result", saved.ErrorMessage);
+        Assert.Equal(1, repository.AddCount);
+        Assert.Equal(1, repository.UpdateCount);
+    }
+
+    [Fact]
+    public async Task FailedDeliveryPersistsStatusAndErrorWithoutSentAt()
+    {
+        var completedAt = DateTimeOffset.UtcNow;
+        var repository = new RecordingNotificationRepository();
+        var service = new NotificationService(
+            new StubEmailSender
+            {
+                Result = new NotificationDeliveryResult(
+                    false,
+                    NotificationDeliveryStatus.Failed,
+                    NotificationChannel.Email,
+                    completedAt.AddSeconds(-1),
+                    completedAt,
+                    "EMAIL_DELIVERY_FAILED",
+                    "The email provider could not deliver the notification.")
+            },
+            new StubSmsSender(),
+            new NotificationDeliveryDeduplicator(),
+            repository,
+            new RecordingLogger<NotificationService>());
+
+        var result = await service.SendAsync(
+            new NotificationRequest
+            {
+                Recipient = "citizen@example.test",
+                Message = "Approved",
+                Channel = NotificationChannel.Email
+            },
+            CancellationToken.None);
+
+        var saved = Assert.Single(repository.Notifications);
+        Assert.False(result.Succeeded);
+        Assert.False(saved.IsSent);
+        Assert.Null(saved.SentAt);
+        Assert.Equal("Failed", saved.DeliveryStatus);
+        Assert.Equal("EMAIL_DELIVERY_FAILED", saved.ErrorCode);
+        Assert.Equal(
+            "The email provider could not deliver the notification.",
+            saved.ErrorMessage);
+        Assert.Equal(completedAt.UtcDateTime, saved.DeliveryCompletedAt);
+        Assert.Equal(1, saved.AttemptCount);
+        Assert.Equal(1, repository.AddCount);
+        Assert.Equal(1, repository.UpdateCount);
+    }
+
+    [Fact]
+    public async Task RecentHistoryReturnsMaskedRecipientAndPersistedDeliveryDetails()
+    {
+        var createdAt = new DateTime(2026, 11, 26, 12, 0, 0, DateTimeKind.Utc);
+        var completedAt = createdAt.AddMinutes(1);
+        var notification = new Notification
+        {
+            Recipient = "citizen@example.test",
+            Channel = NotificationChannel.Email,
+            CreatedAt = createdAt,
+            EventId = Guid.NewGuid(),
+            DeliveryStatus = "MockSent",
+            IsSent = true,
+            DeliveryCompletedAt = completedAt,
+            CorrelationId = Guid.NewGuid(),
+            AttemptCount = 1
+        };
+        var repository = new RecordingNotificationRepository();
+        repository.Notifications.Add(notification);
+        var service = new NotificationService(
+            new StubEmailSender(),
+            new StubSmsSender(),
+            new NotificationDeliveryDeduplicator(),
+            repository,
+            new RecordingLogger<NotificationService>());
+
+        var history = await service.GetRecentAsync(50, CancellationToken.None);
+
+        var item = Assert.Single(history);
+        Assert.Equal(notification.Id, item.Id);
+        Assert.Equal(notification.EventId, item.EventId);
+        Assert.Equal("ci***@example.test", item.Recipient);
+        Assert.Equal(NotificationChannel.Email, item.Channel);
+        Assert.Equal(new DateTimeOffset(createdAt), item.CreatedAt);
+        Assert.Equal("MockSent", item.Status);
+        Assert.True(item.Succeeded);
+        Assert.Equal(new DateTimeOffset(completedAt), item.CompletedAt);
+        Assert.Equal(notification.CorrelationId, item.CorrelationId);
+    }
+
+    private sealed class RecordingNotificationRepository : INotificationRepository
+    {
+        public List<Notification> Notifications { get; } = [];
+        public int AddCount { get; private set; }
+        public int UpdateCount { get; private set; }
+
+        public Task<IReadOnlyList<Notification>> GetRecentAsync(
+            int limit,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Notification>>(
+                Notifications
+                    .OrderByDescending(notification => notification.CreatedAt)
+                    .Take(limit)
+                    .ToArray());
+
+        public Task AddAsync(
+            Notification notification,
+            CancellationToken cancellationToken)
+        {
+            AddCount++;
+            Notifications.Add(notification);
+            return Task.CompletedTask;
+        }
+
+        public Task UpdateAsync(
+            Notification notification,
+            CancellationToken cancellationToken)
+        {
+            UpdateCount++;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class StubEmailSender : IEmailSender

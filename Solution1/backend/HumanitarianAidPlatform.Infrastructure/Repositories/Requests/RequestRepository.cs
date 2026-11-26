@@ -28,6 +28,14 @@ public class RequestRepository : IRequestRepository
     public async Task<AssistanceRequest?> GetTrackedByIdAsync(Guid id) =>
         await _db.AssistanceRequests.FirstOrDefaultAsync(r => r.Id == id);
 
+    public Task<string?> GetNotificationRecipientAsync(Guid requestId) =>
+        (from request in _db.AssistanceRequests.AsNoTracking()
+         join user in _db.Users.AsNoTracking()
+             on request.CitizenId equals user.Id
+         where request.Id == requestId
+         select user.Email)
+        .FirstOrDefaultAsync();
+
     public async Task<IReadOnlyList<RequestStatusHistory>> GetHistoryAsync(Guid requestId) =>
         await _db.RequestStatusHistories
             .AsNoTracking()

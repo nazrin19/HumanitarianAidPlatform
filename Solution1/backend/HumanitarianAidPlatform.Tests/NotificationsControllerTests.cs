@@ -14,6 +14,34 @@ namespace HumanitarianAidPlatform.Tests;
 public class NotificationsControllerTests
 {
     [Fact]
+    public async Task GetRecentReturnsPersistedNotificationHistory()
+    {
+        var history = new[]
+        {
+            new NotificationHistoryItem(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                "ci***@example.test",
+                NotificationChannel.Email,
+                DateTimeOffset.UtcNow,
+                "MockSent",
+                true,
+                DateTimeOffset.UtcNow,
+                Guid.NewGuid(),
+                1,
+                null,
+                null)
+        };
+        var controller = new NotificationsController(
+            new MockNotificationService { History = history });
+
+        var response = await controller.GetRecent(50, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        Assert.Same(history, ok.Value);
+    }
+
+    [Fact]
     public async Task CancellationResultReturns499()
     {
         var controller = new NotificationsController(
@@ -153,6 +181,11 @@ public class NotificationsControllerTests
 
     private sealed class InvalidInputNotificationService : INotificationService
     {
+        public Task<IReadOnlyList<NotificationHistoryItem>> GetRecentAsync(
+            int limit,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<NotificationHistoryItem>>([]);
+
         private static NotificationDeliveryResult InvalidResult(NotificationChannel channel) =>
             new(
                 false,
@@ -221,6 +254,11 @@ public class NotificationsControllerTests
 
     private sealed class CancelledNotificationService : INotificationService
     {
+        public Task<IReadOnlyList<NotificationHistoryItem>> GetRecentAsync(
+            int limit,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<NotificationHistoryItem>>([]);
+
         public Task<NotificationDeliveryResult> SendAsync(
             NotificationRequest request,
             CancellationToken cancellationToken)
@@ -265,6 +303,13 @@ public class NotificationsControllerTests
 
     private sealed class MockNotificationService : INotificationService
     {
+        public IReadOnlyList<NotificationHistoryItem> History { get; init; } = [];
+
+        public Task<IReadOnlyList<NotificationHistoryItem>> GetRecentAsync(
+            int limit,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(History);
+
         public Task<NotificationDeliveryResult> SendAsync(
             NotificationRequest request,
             CancellationToken cancellationToken)

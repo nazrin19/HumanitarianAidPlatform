@@ -1,0 +1,7 @@
+@baseUrl = http://localhost:5001
+@token = replace-with-a-valid-jwt
+
+### Get recent notification history
+GET {{baseUrl}}/api/notifications?limit=50
+Authorization: Bearer {{token}}
+Accept: application/json

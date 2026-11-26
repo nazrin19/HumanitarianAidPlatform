@@ -100,4 +100,29 @@ public class ResourceAllocationRepository : IResourceAllocationRepository
 
         return (allocation, ResourceAllocationFailure.None);
     }
+
+    public async Task<(string? Recipient, string? ResourceName)>
+        GetNotificationDetailsAsync(
+            Guid resourceId,
+            Guid assistanceRequestId,
+            CancellationToken cancellationToken = default)
+    {
+        var details = await (
+            from request in _context.AssistanceRequests.AsNoTracking()
+            join user in _context.Users.AsNoTracking()
+                on request.CitizenId equals user.Id
+            join resource in _context.Resources.AsNoTracking()
+                on resourceId equals resource.Id
+            where request.Id == assistanceRequestId
+            select new
+            {
+                user.Email,
+                resource.Name
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return details is null
+            ? (null, null)
+            : (details.Email, details.Name);
+    }
 }

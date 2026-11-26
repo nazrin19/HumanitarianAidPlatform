@@ -113,6 +113,51 @@ type ApiResource = {
   longitude: number | null;
 };
 
+type NotificationChannel = "Email" | "Sms" | "InApp" | "Unknown";
+
+type ApiNotificationHistoryItem = {
+  id: string;
+  eventId: string | null;
+  recipient: string;
+  channel: NotificationChannel;
+  createdAt: string;
+  status: string;
+  succeeded: boolean;
+  completedAt: string | null;
+  correlationId: string | null;
+  attemptCount: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+};
+
+type NotificationDeliveryResult = {
+  succeeded: boolean;
+  status: string;
+  channel: string;
+  attemptedAt?: string;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  correlationId?: string | null;
+  attemptCount?: number;
+  nextRetryAt?: string | null;
+  isDuplicate?: boolean;
+};
+
+type NotificationLogEntry = {
+  id: string;
+  eventId?: string | null;
+  recipient: string;
+  channel: NotificationChannel;
+  createdAt: string;
+  status: string;
+  succeeded: boolean;
+  correlationId?: string | null;
+  attemptCount?: number;
+  isDuplicate?: boolean;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+};
+
 const urgencyColors: Record<Urgency, string> = {
   Critical: "#A31D1D",
   High: "#D93025",
@@ -152,6 +197,100 @@ const requestStaffRoles = new Set([
   "ShelterAdmin",
   "Admin",
 ]);
+const notificationRoles = new Set(["Admin", "Coordinator", "CaseManager"]);
+
+function isNotificationDeliveryResult(
+  value: unknown,
+): value is NotificationDeliveryResult {
+  if (!value || typeof value !== "object") return false;
+  const result = value as Record<string, unknown>;
+  return (
+    typeof result.succeeded === "boolean" &&
+    typeof result.status === "string" &&
+    typeof result.channel === "string"
+  );
+}
+
+function isApiNotificationHistoryItem(
+  value: unknown,
+): value is ApiNotificationHistoryItem {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.id === "string" &&
+    (typeof item.eventId === "string" || item.eventId === null) &&
+    typeof item.recipient === "string" &&
+    (item.channel === "Email" ||
+      item.channel === "Sms" ||
+      item.channel === "InApp" ||
+      item.channel === "Unknown") &&
+    typeof item.createdAt === "string" &&
+    typeof item.status === "string" &&
+    typeof item.succeeded === "boolean" &&
+    (typeof item.completedAt === "string" || item.completedAt === null) &&
+    (typeof item.correlationId === "string" || item.correlationId === null) &&
+    typeof item.attemptCount === "number" &&
+    (typeof item.errorCode === "string" || item.errorCode === null) &&
+    (typeof item.errorMessage === "string" || item.errorMessage === null)
+  );
+}
+
+function mapApiNotificationHistoryItem(
+  item: ApiNotificationHistoryItem,
+): NotificationLogEntry {
+  return {
+    id: item.id,
+    eventId: item.eventId,
+    recipient: item.recipient,
+    channel: item.channel,
+    createdAt: item.createdAt,
+    status: item.status,
+    succeeded: item.succeeded,
+    correlationId: item.correlationId,
+    attemptCount: item.attemptCount,
+    errorCode: item.errorCode,
+    errorMessage: item.errorMessage,
+  };
+}
+
+function getNotificationErrorMessage(value: unknown, fallback: string): string {
+  if (typeof value === "string" && value.trim()) return value;
+  if (!value || typeof value !== "object") return fallback;
+  const response = value as Record<string, unknown>;
+  if (typeof response.errorMessage === "string" && response.errorMessage.trim()) {
+    return response.errorMessage;
+  }
+  if (typeof response.detail === "string" && response.detail.trim()) {
+    return response.detail;
+  }
+  if (typeof response.title === "string" && response.title.trim()) {
+    return response.title;
+  }
+  if (typeof response.message === "string" && response.message.trim()) {
+    return response.message;
+  }
+  if (response.errors && typeof response.errors === "object") {
+    const messages = Object.values(response.errors).flatMap((messages) =>
+      Array.isArray(messages)
+        ? messages.filter(
+            (message): message is string => typeof message === "string",
+          )
+        : [],
+    );
+    if (messages.length > 0) return messages.join(" ");
+  }
+  return fallback;
+}
+
+function maskNotificationRecipient(recipient: string): string {
+  const trimmed = recipient.trim();
+  const atIndex = trimmed.indexOf("@");
+  if (atIndex > 0) {
+    return `${trimmed.slice(0, Math.min(2, atIndex))}***${trimmed.slice(atIndex)}`;
+  }
+  const digits = trimmed.replace(/\D/g, "");
+  return digits.length >= 4 ? `***${digits.slice(-4)}` : "***";
+}
 
 function isApiAidRequest(value: unknown): value is ApiAidRequest {
   if (!value || typeof value !== "object") return false;
@@ -306,6 +445,19 @@ export default function DashboardPage() {
   const [selection, setSelection] = useState<Selection>(null);
   const [toast, setToast] = useState("");
   const [showToast, setShowToast] = useState(false);
+  const [notificationRecipient, setNotificationRecipient] = useState("");
+  const [notificationChannel, setNotificationChannel] =
+    useState<NotificationChannel>("Email");
+  const [notificationLogs, setNotificationLogs] = useState<
+    NotificationLogEntry[]
+  >([]);
+  const [isLoadingNotificationHistory, setIsLoadingNotificationHistory] =
+    useState(false);
+  const [notificationHistoryError, setNotificationHistoryError] = useState("");
+  const [notificationRefreshVersion, setNotificationRefreshVersion] =
+    useState(0);
+  const [isSendingTestNotification, setIsSendingTestNotification] =
+    useState(false);
   const [mapInstance, setMapInstance] = useState<LeafletMapInstance | null>(
     null,
   );
@@ -469,6 +621,92 @@ export default function DashboardPage() {
       controller.abort();
     };
   }, [accountRole, requestPage, router]);
+
+  useEffect(() => {
+    if (
+      accountRole === AUTH_SESSION_LOADING ||
+      !notificationRoles.has(accountRole)
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let active = true;
+    const token = window.sessionStorage.getItem("authToken");
+
+    if (!token) {
+      router.replace("/login");
+      return () => {
+        active = false;
+        controller.abort();
+      };
+    }
+
+    async function loadNotificationHistory() {
+      setIsLoadingNotificationHistory(true);
+      setNotificationHistoryError("");
+
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/notifications?limit=50`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          },
+        );
+
+        if (response.status === 401) {
+          clearSessionCredentials();
+          setIsRedirecting(true);
+          router.replace("/login");
+          return;
+        }
+
+        const responseBody: unknown = await response.json().catch(() => undefined);
+        if (!response.ok) {
+          throw new Error(
+            getNotificationErrorMessage(
+              responseBody,
+              `Unable to load notifications (${response.status}).`,
+            ),
+          );
+        }
+
+        if (
+          !Array.isArray(responseBody) ||
+          !responseBody.every(isApiNotificationHistoryItem)
+        ) {
+          throw new Error(
+            "The server returned notifications in an unexpected format.",
+          );
+        }
+
+        if (active) {
+          setNotificationLogs(responseBody.map(mapApiNotificationHistoryItem));
+          setNotificationHistoryError("");
+        }
+      } catch (error) {
+        if (
+          active &&
+          !(error instanceof DOMException && error.name === "AbortError")
+        ) {
+          setNotificationHistoryError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load notifications. Please try again.",
+          );
+        }
+      } finally {
+        if (active) setIsLoadingNotificationHistory(false);
+      }
+    }
+
+    void loadNotificationHistory();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [accountRole, notificationRefreshVersion, router]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -708,6 +946,97 @@ export default function DashboardPage() {
     setShowToast(true);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setShowToast(false), 3600);
+  }
+
+  async function sendTestNotification(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const token = window.sessionStorage.getItem("authToken");
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    const eventId = window.crypto.randomUUID();
+    const recipient = notificationRecipient.trim();
+    const channel = notificationChannel;
+    const createdAt = new Date().toISOString();
+    setIsSendingTestNotification(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/notifications/send`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          eventId,
+          recipient,
+          channel,
+          subject: "Dashboard test notification",
+          message: "This is a test notification sent from the dashboard.",
+        }),
+      });
+      const responseBody: unknown = await response.json().catch(() => undefined);
+      const delivery = isNotificationDeliveryResult(responseBody)
+        ? responseBody
+        : undefined;
+      const succeeded = response.ok && (delivery?.succeeded ?? false);
+      const status = delivery?.status ?? (response.ok ? "Unknown" : "Failed");
+      const fallbackError = response.ok
+        ? "The API response did not include a delivery result."
+        : `Notification request failed with HTTP ${response.status}.`;
+      const errorMessage = succeeded
+        ? null
+        : getNotificationErrorMessage(responseBody, fallbackError);
+
+      setNotificationLogs((logs) => [
+        {
+          id: eventId,
+          eventId,
+          recipient: maskNotificationRecipient(recipient),
+          channel,
+          createdAt,
+          status: succeeded ? status : status === "Unknown" ? "Failed" : status,
+          succeeded,
+          correlationId: delivery?.correlationId,
+          attemptCount: delivery?.attemptCount,
+          isDuplicate: delivery?.isDuplicate,
+          errorCode: delivery?.errorCode,
+          errorMessage: delivery?.errorMessage ?? errorMessage,
+        },
+        ...logs,
+      ]);
+      setNotificationRefreshVersion((version) => version + 1);
+      notify(
+        succeeded
+          ? `Notification result: ${status}.`
+          : `Notification failed: ${errorMessage}`,
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "The notification request could not be completed.";
+      setNotificationLogs((logs) => [
+        {
+          id: eventId,
+          eventId,
+          recipient: maskNotificationRecipient(recipient),
+          channel,
+          createdAt,
+          status: "Failed",
+          succeeded: false,
+          errorMessage,
+        },
+        ...logs,
+      ]);
+      setNotificationRefreshVersion((version) => version + 1);
+      notify(`Notification failed: ${errorMessage}`);
+    } finally {
+      setIsSendingTestNotification(false);
+    }
   }
 
   async function updateRequest(
@@ -1809,44 +2138,91 @@ export default function DashboardPage() {
             <section className={styles.card} aria-labelledby="notifications-title">
               <div className={styles.cardHeading}>
                 <h2 id="notifications-title">Recent Notification Logs</h2>
-                <span className={`${styles.tag} ${styles.redTag}`}>1 failed</span>
-                <button
-                  className={styles.button}
-                  type="button"
-                  onClick={() => notify("Test notification sent.")}
-                >
-                  Test Notification
-                </button>
+                <span className={`${styles.tag} ${styles.redTag}`}>
+                  {notificationLogs.filter((log) => !log.succeeded).length} failed
+                </span>
               </div>
+              {notificationRoles.has(accountRole) ? (
+                <form
+                  className={styles.notificationForm}
+                  onSubmit={sendTestNotification}
+                >
+                  <label>
+                    Test recipient
+                    <input
+                      type={notificationChannel === "Email" ? "email" : "tel"}
+                      required
+                      value={notificationRecipient}
+                      onChange={(event) =>
+                        setNotificationRecipient(event.target.value)
+                      }
+                      placeholder={
+                        notificationChannel === "Email"
+                          ? "name@example.com"
+                          : "+1 555 555 0100"
+                      }
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label>
+                    Channel
+                    <select
+                      value={notificationChannel}
+                      onChange={(event) =>
+                        setNotificationChannel(
+                          event.target.value === "Sms" ? "Sms" : "Email",
+                        )
+                      }
+                    >
+                      <option value="Email">Email</option>
+                      <option value="Sms">SMS</option>
+                    </select>
+                  </label>
+                  <button
+                    className={`${styles.button} ${styles.primaryButton}`}
+                    type="submit"
+                    disabled={isSendingTestNotification}
+                  >
+                    {isSendingTestNotification
+                      ? "Sending…"
+                      : "Send Test Notification"}
+                  </button>
+                </form>
+              ) : (
+                <p className={styles.note}>
+                  Notification tests are available to authorized staff.
+                </p>
+              )}
               <div className={styles.logs}>
-                <LogEntry
-                  title="Allocation update"
-                  detail="SMS · +94 ***1234"
-                  time="09:22"
-                  status="Sent"
-                  channel="sms"
-                />
-                <LogEntry
-                  title="Request received"
-                  detail="Email · c***@mail.com"
-                  time="09:12"
-                  status="Sent"
-                  channel="email"
-                />
-                <LogEntry
-                  title="Shelter assignment"
-                  detail="SMS · +94 ***5678"
-                  time="08:41"
-                  status="Failed"
-                  channel="sms"
-                />
-                <LogEntry
-                  title="Status update"
-                  detail="Email · v***@mail.com"
-                  time="08:20"
-                  status="Pending"
-                  channel="email"
-                />
+                {!notificationRoles.has(accountRole) ? (
+                  <p className={styles.note}>
+                    Notification history is available to authorized staff.
+                  </p>
+                ) : isLoadingNotificationHistory ? (
+                  <p role="status">Loading notification history…</p>
+                ) : (
+                  <>
+                    {notificationHistoryError ? (
+                      <div className={styles.notificationHistoryError} role="alert">
+                        <p>{notificationHistoryError}</p>
+                        <button
+                          className={styles.button}
+                          type="button"
+                          onClick={() =>
+                            setNotificationRefreshVersion((version) => version + 1)
+                          }
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    ) : notificationLogs.length === 0 ? (
+                      <p className={styles.note}>No notifications yet.</p>
+                    ) : null}
+                    {notificationLogs.map((log) => (
+                      <LogEntry key={log.id} entry={log} />
+                    ))}
+                  </>
+                )}
               </div>
             </section>
           </div>
@@ -1889,38 +2265,53 @@ function BellIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 21h4" /></svg>;
 }
 
-function LogEntry({
-  title,
-  detail,
-  time,
-  status,
-  channel,
-}: {
-  title: string;
-  detail: string;
-  time: string;
-  status: "Sent" | "Pending" | "Failed";
-  channel: "sms" | "email";
-}) {
-  const className =
-    status === "Sent"
-      ? styles.logSuccess
-      : status === "Pending"
-        ? styles.logPending
-        : styles.logFailed;
+function LogEntry({ entry }: { entry: NotificationLogEntry }) {
+  const className = entry.succeeded
+    ? entry.status === "MockSent"
+      ? styles.logPending
+      : styles.logSuccess
+    : styles.logFailed;
+  const timestamp = new Date(entry.createdAt).toLocaleString([], {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+  const details = [
+    entry.eventId ? `Event ${entry.eventId}` : null,
+    entry.correlationId ? `Correlation ${entry.correlationId}` : null,
+    entry.attemptCount !== undefined
+      ? `Attempts ${entry.attemptCount}`
+      : null,
+    entry.isDuplicate ? "Duplicate suppressed" : null,
+    entry.errorCode ?? null,
+    entry.errorMessage ?? null,
+  ].filter((detail): detail is string => Boolean(detail));
 
   return (
     <div className={styles.logEntry}>
       <span className={styles.logIcon}>
-        {channel === "sms" ? <MessageIcon /> : <MailIcon />}
+        {entry.channel === "Sms" ? <MessageIcon /> : <MailIcon />}
       </span>
       <div>
-        <b>{title}</b>
-        <small>{detail}</small>
+        <b>Notification attempt</b>
+        <small>
+          {entry.channel === "Sms"
+            ? "SMS"
+            : entry.channel === "InApp"
+              ? "In-app"
+              : entry.channel === "Unknown"
+                ? "Unknown channel"
+                : "Email"}{" "}
+          · {entry.recipient}
+        </small>
+        {details.map((detail) => (
+          <small className={styles.notificationDetail} key={detail}>
+            {detail}
+          </small>
+        ))}
       </div>
       <div className={styles.logResult}>
-        <span className={`${styles.pill} ${className}`}>{status}</span>
-        <small>{time}</small>
+        <span className={`${styles.pill} ${className}`}>{entry.status}</span>
+        <small>{timestamp}</small>
       </div>
     </div>
   );
