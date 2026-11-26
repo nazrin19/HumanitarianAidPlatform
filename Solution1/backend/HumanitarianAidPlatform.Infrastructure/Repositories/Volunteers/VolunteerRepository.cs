@@ -37,4 +37,11 @@ public class VolunteerRepository : IVolunteerRepository
         _db.Volunteers.Remove(volunteer);
         await _db.SaveChangesAsync();
     }
+
+    public async Task<bool> EmailExistsAsync(
+    string email,
+    Guid? excludeId = null) =>
+    await _db.Volunteers.AnyAsync(v =>
+        v.Email == email &&
+        (excludeId == null || v.Id != excludeId));
 }

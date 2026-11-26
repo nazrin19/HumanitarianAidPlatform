@@ -20,10 +20,18 @@ public class VolunteersController : ControllerBase
     [HttpPost]
     [ProducesResponseType(typeof(VolunteerResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<VolunteerResponseDto>> Create(CreateVolunteerDto dto)
     {
-        var created = await _service.CreateAsync(dto);
-        return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
+        try
+        {
+            var created = await _service.CreateAsync(dto);
+            return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
     }
 
     [HttpGet]
@@ -42,10 +50,18 @@ public class VolunteersController : ControllerBase
     [HttpPut("{id:guid}")]
     [ProducesResponseType(typeof(VolunteerResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<VolunteerResponseDto>> Update(Guid id, CreateVolunteerDto dto)
     {
-        var updated = await _service.UpdateAsync(id, dto);
-        return updated is null ? NotFound() : Ok(updated);
+        try
+        {
+            var updated = await _service.UpdateAsync(id, dto);
+            return updated is null ? NotFound() : Ok(updated);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
     }
 
     [HttpDelete("{id:guid}")]

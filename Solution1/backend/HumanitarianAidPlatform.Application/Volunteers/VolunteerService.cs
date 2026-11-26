@@ -12,7 +12,12 @@ public class VolunteerService : IVolunteerService
     }
 
     public async Task<VolunteerResponseDto> CreateAsync(CreateVolunteerDto dto)
+      
     {
+        if (await _repository.EmailExistsAsync(dto.Email.Trim()))
+            throw new InvalidOperationException(
+                "A volunteer with this email already exists.");
+
         var volunteer = new Volunteer
         {
             Id = Guid.NewGuid(),
@@ -42,8 +47,13 @@ public class VolunteerService : IVolunteerService
 
     public async Task<VolunteerResponseDto?> UpdateAsync(Guid id, CreateVolunteerDto dto)
     {
+       
         var volunteer = await _repository.GetByIdAsync(id);
         if (volunteer is null) return null;
+
+        if (await _repository.EmailExistsAsync(dto.Email.Trim(), id))
+            throw new InvalidOperationException(
+                "A volunteer with this email already exists.");
 
         volunteer.FullName = dto.FullName.Trim();
         volunteer.Email = dto.Email.Trim();

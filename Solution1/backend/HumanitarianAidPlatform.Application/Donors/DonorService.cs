@@ -13,6 +13,10 @@ public class DonorService : IDonorService
 
     public async Task<DonorResponseDto> CreateAsync(CreateDonorDto dto)
     {
+        if (await _repository.EmailExistsAsync(dto.Email.Trim()))
+            throw new InvalidOperationException(
+                "A donor with this email already exists.");
+
         var donor = new Donor
         {
             Id = Guid.NewGuid(),
@@ -45,11 +49,16 @@ public class DonorService : IDonorService
         var donor = await _repository.GetByIdAsync(id);
         if (donor is null) return null;
 
+        if (await _repository.EmailExistsAsync(dto.Email.Trim(), id))
+            throw new InvalidOperationException(
+                "A donor with this email already exists.");
+
         donor.FullName = dto.FullName.Trim();
         donor.Email = dto.Email.Trim();
         donor.Phone = dto.Phone?.Trim();
         donor.Type = dto.Type;
-        donor.IsActive = dto.IsActive;
+        if (dto.IsActive.HasValue)
+            donor.IsActive = dto.IsActive.Value;
 
         await _repository.UpdateAsync(donor);
         return ToDto(donor);
@@ -59,6 +68,10 @@ public class DonorService : IDonorService
     {
         var donor = await _repository.GetByIdAsync(id);
         if (donor is null) return false;
+
+        if (await _repository.HasDonationsAsync(id))
+            throw new InvalidOperationException(
+                "This donor has donations and cannot be deleted. Deactivate the donor instead.");
 
         await _repository.DeleteAsync(donor);
         return true;
