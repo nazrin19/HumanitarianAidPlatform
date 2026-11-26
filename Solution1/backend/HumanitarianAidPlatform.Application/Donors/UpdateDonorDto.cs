@@ -4,6 +4,6 @@ namespace HumanitarianAidPlatform.Application.Donors;
 
 public class UpdateDonorDto : CreateDonorDto
 {
-    [Required]
-    public bool IsActive { get; set; }
+    
+    public bool? IsActive { get; set; }
 }

@@ -9,4 +9,5 @@ public interface IVolunteerRepository
     Task<List<Volunteer>> GetAllAsync();
     Task UpdateAsync(Volunteer volunteer);
     Task DeleteAsync(Volunteer volunteer);
+    Task<bool> EmailExistsAsync(string email, Guid? excludeId = null);
 }
