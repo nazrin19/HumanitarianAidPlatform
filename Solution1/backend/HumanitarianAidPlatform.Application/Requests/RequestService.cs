@@ -99,7 +99,7 @@ public class RequestService : IRequestService
             CreatedAt = now
         };
 
-        request.StatusHistory.Add(new RequestStatusHistory
+        var submittedHistory = new RequestStatusHistory
         {
             Id = Guid.NewGuid(),
             AssistanceRequestId = request.Id,
@@ -108,7 +108,9 @@ public class RequestService : IRequestService
             ChangedByUserId = citizenId,
             ChangedAt = now,
             Note = "Request submitted"
-        });
+        };
+        request.StatusHistory.Add(submittedHistory);
+        var notificationEventId = submittedHistory.Id;
 
         // The request is saved first, so it is never lost even if classification fails.
         await _repository.AddAsync(request);
@@ -144,6 +146,7 @@ public class RequestService : IRequestService
 
             await _repository.AttachRecommendationAsync(request.Id, recommendation, history);
             request.Status = RequestStatus.PendingReview;
+            notificationEventId = history.Id;
         }
         catch (Exception exception)
         {
@@ -154,6 +157,12 @@ public class RequestService : IRequestService
                 request.Id,
                 _classifier.Name);
         }
+
+        await SendStatusNotificationSafelyAsync(
+            request.Id,
+            notificationEventId,
+            request.Status,
+            "Request submitted");
 
         return ToDto(request);
     }
@@ -297,7 +306,7 @@ public class RequestService : IRequestService
         if (_notificationService is null)
         {
             _logger.LogWarning(
-                "Assistance request {RequestId} changed to {Status}, but notification service is not configured.",
+                "Assistance request {RequestId} reached status {Status}, but notification was skipped because the notification service is not configured.",
                 requestId,
                 status);
             return;
@@ -309,7 +318,7 @@ public class RequestService : IRequestService
             if (string.IsNullOrWhiteSpace(recipient))
             {
                 _logger.LogWarning(
-                    "Assistance request {RequestId} changed to {Status}, but no notification recipient was found.",
+                    "Assistance request notification was skipped for {RequestId} at status {Status}: recipient lookup returned null or whitespace.",
                     requestId,
                     status);
                 return;
@@ -325,6 +334,7 @@ public class RequestService : IRequestService
                     Status = status,
                     Note = note
                 },
+                // Attempt delivery after the status save even if the HTTP request is cancelled.
                 CancellationToken.None);
 
             if (result.Succeeded)
@@ -338,10 +348,12 @@ public class RequestService : IRequestService
             else
             {
                 _logger.LogWarning(
-                    "Assistance request notification failed for {RequestId} with {DeliveryStatus}: {ErrorCode}. The status change remains saved.",
+                    "Assistance request notification failed for {RequestId} with {DeliveryStatus}: {ErrorCode} ({ErrorMessage}), correlation {CorrelationId}. The status change remains saved.",
                     requestId,
                     result.Status,
-                    result.ErrorCode);
+                    result.ErrorCode,
+                    result.ErrorMessage,
+                    result.CorrelationId);
             }
         }
         catch (Exception exception)

@@ -28,7 +28,10 @@ public sealed record NotificationRequest : IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        return NotificationRequestValidation.ValidateCommon(EventId, Channel);
+        return NotificationRequestValidation.ValidateCommon(
+            EventId,
+            Channel,
+            Recipient);
     }
 }
 
@@ -55,7 +58,8 @@ public sealed record AssistanceRequestStatusNotificationRequest : IValidatableOb
     {
         foreach (var validationResult in NotificationRequestValidation.ValidateCommon(
                      EventId,
-                     Channel))
+                     Channel,
+                     Recipient))
         {
             yield return validationResult;
         }
@@ -106,7 +110,8 @@ public sealed record AllocationAssignmentNotificationRequest : IValidatableObjec
     {
         foreach (var validationResult in NotificationRequestValidation.ValidateCommon(
                      EventId,
-                     Channel))
+                     Channel,
+                     Recipient))
         {
             yield return validationResult;
         }
@@ -161,7 +166,8 @@ internal static class NotificationRequestValidation
 {
     public static IEnumerable<ValidationResult> ValidateCommon(
         Guid? eventId,
-        NotificationChannel channel)
+        NotificationChannel channel,
+        string? recipient)
     {
         if (eventId == Guid.Empty)
         {
@@ -175,6 +181,39 @@ internal static class NotificationRequestValidation
             yield return new ValidationResult(
                 "The requested notification channel is invalid.",
                 ["Channel"]);
+            yield break;
         }
+
+        if (string.IsNullOrWhiteSpace(recipient))
+        {
+            yield return new ValidationResult(
+                "Recipient must not be blank.",
+                ["Recipient"]);
+            yield break;
+        }
+
+        var trimmedRecipient = recipient.Trim();
+        if (channel == NotificationChannel.Email &&
+            !new EmailAddressAttribute().IsValid(trimmedRecipient))
+        {
+            yield return new ValidationResult(
+                "Recipient must be a valid email address for the Email channel.",
+                ["Recipient"]);
+        }
+        else if (channel == NotificationChannel.Sms &&
+                 !IsValidPhoneRecipient(trimmedRecipient))
+        {
+            yield return new ValidationResult(
+                "Recipient must be a valid phone number for the Sms channel.",
+                ["Recipient"]);
+        }
+    }
+
+    private static bool IsValidPhoneRecipient(string recipient)
+    {
+        var digitCount = recipient.Count(character =>
+            character is >= '0' and <= '9');
+        return digitCount is >= 7 and <= 15 &&
+            new PhoneAttribute().IsValid(recipient);
     }
 }

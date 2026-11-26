@@ -9,16 +9,21 @@ using HumanitarianAidPlatform.Domain.Entities.Resources;
 using HumanitarianAidPlatform.Infrastructure.Persistence;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace HumanitarianAidPlatform.Infrastructure.Repositories.Resources;
 
 public class ResourceAllocationRepository : IResourceAllocationRepository
 {
     private readonly AppDbContext _context;
+    private readonly ILogger<ResourceAllocationRepository> _logger;
 
-    public ResourceAllocationRepository(AppDbContext context)
+    public ResourceAllocationRepository(
+        AppDbContext context,
+        ILogger<ResourceAllocationRepository> logger)
     {
         _context = context;
+        _logger = logger;
     }
 
     public async Task<(
@@ -107,22 +112,53 @@ public class ResourceAllocationRepository : IResourceAllocationRepository
             Guid assistanceRequestId,
             CancellationToken cancellationToken = default)
     {
-        var details = await (
-            from request in _context.AssistanceRequests.AsNoTracking()
-            join user in _context.Users.AsNoTracking()
-                on request.CitizenId equals user.Id
-            join resource in _context.Resources.AsNoTracking()
-                on resourceId equals resource.Id
-            where request.Id == assistanceRequestId
-            select new
-            {
-                user.Email,
-                resource.Name
-            })
+        var request = await _context.AssistanceRequests
+            .AsNoTracking()
+            .Where(item => item.Id == assistanceRequestId)
+            .Select(item => new { item.CitizenId })
             .FirstOrDefaultAsync(cancellationToken);
 
-        return details is null
-            ? (null, null)
-            : (details.Email, details.Name);
+        var resourceName = await _context.Resources
+            .AsNoTracking()
+            .Where(item => item.Id == resourceId)
+            .Select(item => item.Name)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (request is null || resourceName is null)
+        {
+            _logger.LogWarning(
+                "Could not resolve notification details for allocation request {AssistanceRequestId} and resource {ResourceId}: request found {RequestFound}, resource found {ResourceFound}.",
+                assistanceRequestId,
+                resourceId,
+                request is not null,
+                resourceName is not null);
+            return (null, resourceName);
+        }
+
+        var user = await _context.Users
+            .AsNoTracking()
+            .Where(item => item.Id == request.CitizenId)
+            .Select(item => new { item.Email })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (user is null)
+        {
+            _logger.LogWarning(
+                "Could not resolve notification details for allocation request {AssistanceRequestId}: citizen join failed for user {UserId}.",
+                assistanceRequestId,
+                request.CitizenId);
+            return (null, resourceName);
+        }
+
+        if (string.IsNullOrWhiteSpace(user.Email))
+        {
+            _logger.LogWarning(
+                "Could not resolve notification details for allocation request {AssistanceRequestId}: user {UserId} has no email address.",
+                assistanceRequestId,
+                request.CitizenId);
+            return (null, resourceName);
+        }
+
+        return (user.Email, resourceName);
     }
 }

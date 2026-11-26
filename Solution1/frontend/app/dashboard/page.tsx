@@ -253,10 +253,23 @@ function mapApiNotificationHistoryItem(
   };
 }
 
+function isNotificationPersistenceWarning(entry: NotificationLogEntry): boolean {
+  return (
+    entry.errorCode === "NOTIFICATION_PERSISTENCE_FAILED" ||
+    entry.errorCode === "NOTIFICATION_STATUS_PERSISTENCE_FAILED"
+  );
+}
+
 function getNotificationErrorMessage(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.trim()) return value;
   if (!value || typeof value !== "object") return fallback;
   const response = value as Record<string, unknown>;
+  if (response.error && typeof response.error === "object") {
+    const error = response.error as Record<string, unknown>;
+    if (typeof error.message === "string" && error.message.trim()) {
+      return error.message;
+    }
+  }
   if (typeof response.errorMessage === "string" && response.errorMessage.trim()) {
     return response.errorMessage;
   }
@@ -682,7 +695,39 @@ export default function DashboardPage() {
         }
 
         if (active) {
-          setNotificationLogs(responseBody.map(mapApiNotificationHistoryItem));
+          const historyEntries = responseBody.map(mapApiNotificationHistoryItem);
+          setNotificationLogs((currentLogs) => {
+            const localPersistenceOutcomes = currentLogs.filter(
+              (entry) =>
+                Boolean(entry.eventId) &&
+                isNotificationPersistenceWarning(entry),
+            );
+            const localOutcomesByEventId = new Map<
+              string,
+              NotificationLogEntry
+            >();
+            for (const entry of localPersistenceOutcomes) {
+              if (entry.eventId) {
+                localOutcomesByEventId.set(entry.eventId, entry);
+              }
+            }
+            const serverEventIds = new Set(
+              historyEntries
+                .map((entry) => entry.eventId)
+                .filter((eventId): eventId is string => Boolean(eventId)),
+            );
+            const mergedHistory = historyEntries.map((entry) =>
+              entry.eventId
+                ? (localOutcomesByEventId.get(entry.eventId) ?? entry)
+                : entry,
+            );
+            const unpersistedOutcomes = localPersistenceOutcomes.filter(
+              (entry) =>
+                !entry.eventId || !serverEventIds.has(entry.eventId),
+            );
+
+            return [...unpersistedOutcomes, ...mergedHistory].slice(0, 50);
+          });
           setNotificationHistoryError("");
         }
       } catch (error) {
@@ -935,6 +980,40 @@ export default function DashboardPage() {
   const needsReviewCount = requests.filter(
     (request) => request.st === "Submitted" || request.st === "PendingReview",
   ).length;
+  const failedNotificationCount = notificationRoles.has(accountRole)
+    ? notificationLogs.filter((log) => !log.succeeded).length
+    : 0;
+  const notificationHistorySummary = !notificationRoles.has(accountRole)
+    ? "Notification history is restricted to authorized staff."
+    : isLoadingNotificationHistory
+      ? "Loading recent notification history."
+      : notificationHistoryError
+        ? `Notification history is unavailable: ${notificationHistoryError}`
+        : notificationLogs.length === 0
+          ? "No recent notification attempts."
+          : `${notificationLogs.length} recent notification attempts; ${failedNotificationCount} failed.`;
+  const notificationBadgeText = !notificationRoles.has(accountRole)
+    ? "i"
+    : isLoadingNotificationHistory
+      ? "…"
+      : notificationHistoryError
+        ? "!"
+        : failedNotificationCount > 0
+          ? String(failedNotificationCount)
+          : notificationLogs.length === 0
+            ? "0"
+            : "✓";
+  const notificationBadgeClass = `${styles.bellBadge} ${
+    !notificationRoles.has(accountRole)
+      ? styles.bellBadgeInfo
+      : notificationHistoryError
+      ? styles.bellBadgeError
+      : isLoadingNotificationHistory
+        ? styles.bellBadgeLoading
+        : failedNotificationCount > 0
+          ? styles.bellBadgeFailed
+          : styles.bellBadgeClear
+  }`;
 
   function signOut() {
     clearSessionCredentials();
@@ -946,6 +1025,12 @@ export default function DashboardPage() {
     setShowToast(true);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setShowToast(false), 3600);
+  }
+
+  function openNotificationHistory() {
+    document
+      .getElementById("notification-history")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function sendTestNotification(event: FormEvent<HTMLFormElement>) {
@@ -978,6 +1063,15 @@ export default function DashboardPage() {
           message: "This is a test notification sent from the dashboard.",
         }),
       });
+
+      if (response.status === 401) {
+        clearSessionCredentials();
+        setNotificationLogs([]);
+        setIsRedirecting(true);
+        router.replace("/login");
+        return;
+      }
+
       const responseBody: unknown = await response.json().catch(() => undefined);
       const delivery = isNotificationDeliveryResult(responseBody)
         ? responseBody
@@ -1413,13 +1507,16 @@ export default function DashboardPage() {
           <button
             className={styles.bell}
             type="button"
-            aria-label="Notifications"
-            onClick={() => notify("You’re all caught up on notifications.")}
+            aria-label={notificationHistorySummary}
+            aria-controls="notification-history"
+            onClick={openNotificationHistory}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 21h4" />
             </svg>
-            <i />
+            <span className={notificationBadgeClass} aria-hidden="true">
+              {notificationBadgeText}
+            </span>
           </button>
           <div className={styles.avatar} aria-label={`${accountRole} account`}>
             {accountRole.slice(0, 2).toUpperCase()}
@@ -2135,59 +2232,75 @@ export default function DashboardPage() {
                 )}
               </div>
             </section>
-            <section className={styles.card} aria-labelledby="notifications-title">
+            <section
+              className={styles.card}
+              id="notification-history"
+              aria-labelledby="notifications-title"
+            >
               <div className={styles.cardHeading}>
-                <h2 id="notifications-title">Recent Notification Logs</h2>
+                <h2 id="notifications-title">Notification delivery history</h2>
                 <span className={`${styles.tag} ${styles.redTag}`}>
-                  {notificationLogs.filter((log) => !log.succeeded).length} failed
+                  {failedNotificationCount} failed
                 </span>
               </div>
               {notificationRoles.has(accountRole) ? (
-                <form
-                  className={styles.notificationForm}
-                  onSubmit={sendTestNotification}
-                >
-                  <label>
-                    Test recipient
-                    <input
-                      type={notificationChannel === "Email" ? "email" : "tel"}
-                      required
-                      value={notificationRecipient}
-                      onChange={(event) =>
-                        setNotificationRecipient(event.target.value)
-                      }
-                      placeholder={
-                        notificationChannel === "Email"
-                          ? "name@example.com"
-                          : "+1 555 555 0100"
-                      }
-                      autoComplete="off"
-                    />
-                  </label>
-                  <label>
-                    Channel
-                    <select
-                      value={notificationChannel}
-                      onChange={(event) =>
-                        setNotificationChannel(
-                          event.target.value === "Sms" ? "Sms" : "Email",
-                        )
-                      }
+                <>
+                  <div className={styles.notificationTestTools}>
+                    <h3>Staff test-send</h3>
+                    <p className={styles.note}>
+                      Test attempts only. Sandbox mode reports MockSent and
+                      does not contact an email or SMS recipient.
+                    </p>
+                    <form
+                      className={styles.notificationForm}
+                      onSubmit={sendTestNotification}
                     >
-                      <option value="Email">Email</option>
-                      <option value="Sms">SMS</option>
-                    </select>
-                  </label>
-                  <button
-                    className={`${styles.button} ${styles.primaryButton}`}
-                    type="submit"
-                    disabled={isSendingTestNotification}
-                  >
-                    {isSendingTestNotification
-                      ? "Sending…"
-                      : "Send Test Notification"}
-                  </button>
-                </form>
+                      <label>
+                        Test recipient
+                        <input
+                          type={notificationChannel === "Email" ? "email" : "tel"}
+                          required
+                          value={notificationRecipient}
+                          onChange={(event) =>
+                            setNotificationRecipient(event.target.value)
+                          }
+                          placeholder={
+                            notificationChannel === "Email"
+                              ? "name@example.com"
+                              : "+1 555 555 0100"
+                          }
+                          autoComplete="off"
+                        />
+                      </label>
+                      <label>
+                        Channel
+                        <select
+                          value={notificationChannel}
+                          onChange={(event) =>
+                            setNotificationChannel(
+                              event.target.value === "Sms" ? "Sms" : "Email",
+                            )
+                          }
+                        >
+                          <option value="Email">Email</option>
+                          <option value="Sms">SMS</option>
+                        </select>
+                      </label>
+                      <button
+                        className={`${styles.button} ${styles.primaryButton}`}
+                        type="submit"
+                        disabled={isSendingTestNotification}
+                      >
+                        {isSendingTestNotification
+                          ? "Sending…"
+                          : "Send Test Notification"}
+                      </button>
+                    </form>
+                  </div>
+                  <h3 className={styles.notificationSubheading}>
+                    Recent attempts
+                  </h3>
+                </>
               ) : (
                 <p className={styles.note}>
                   Notification tests are available to authorized staff.
@@ -2216,7 +2329,9 @@ export default function DashboardPage() {
                         </button>
                       </div>
                     ) : notificationLogs.length === 0 ? (
-                      <p className={styles.note}>No notifications yet.</p>
+                      <p className={styles.note}>
+                        No notification attempts are recorded in recent history.
+                      </p>
                     ) : null}
                     {notificationLogs.map((log) => (
                       <LogEntry key={log.id} entry={log} />

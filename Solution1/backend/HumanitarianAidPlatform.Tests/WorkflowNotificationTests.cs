@@ -16,6 +16,30 @@ namespace HumanitarianAidPlatform.Tests;
 public sealed class WorkflowNotificationTests
 {
     [Fact]
+    public async Task SubmitSendsStatusNotificationAfterSavingEvenWhenClassificationFails()
+    {
+        var repository = new RequestRepositoryStub(RequestStatus.Submitted);
+        var notifications = new NotificationServiceStub();
+        var service = CreateRequestService(repository, notifications);
+
+        var response = await service.SubmitAsync(
+            Guid.NewGuid(),
+            new CreateRequestDto
+            {
+                Category = RequestCategory.Food,
+                Description = "Food assistance needed"
+            });
+
+        Assert.Equal(RequestStatus.Submitted, response.Status);
+        var savedRequest = Assert.IsType<AssistanceRequest>(repository.AddedRequest);
+        var submittedHistory = Assert.Single(savedRequest.StatusHistory);
+        var notification = Assert.IsType<AssistanceRequestStatusNotificationRequest>(
+            Assert.Single(notifications.StatusRequests));
+        Assert.Equal(submittedHistory.Id, notification.EventId);
+        Assert.Equal(RequestStatus.Submitted, notification.Status);
+    }
+
+    [Fact]
     public async Task ReviewAndStatusChangesTriggerNotificationsAfterSaving()
     {
         var repository = new RequestRepositoryStub(RequestStatus.PendingReview);
@@ -49,6 +73,27 @@ public sealed class WorkflowNotificationTests
             notifications.StatusRequests[1]);
         Assert.Equal(repository.SavedHistory!.Id, statusNotification.EventId);
         Assert.Equal(RequestStatus.Assigned, statusNotification.Status);
+    }
+
+    [Fact]
+    public async Task MissingRequestRecipientSkipsNotificationWithoutUndoingStatusChange()
+    {
+        var repository = new RequestRepositoryStub(RequestStatus.PendingReview)
+        {
+            NotificationRecipient = " "
+        };
+        var notifications = new NotificationServiceStub();
+        var service = CreateRequestService(repository, notifications);
+
+        var result = await service.ChangeStatusAsync(
+            repository.Request.Id,
+            Guid.NewGuid(),
+            RoleNames.Coordinator,
+            new ChangeRequestStatusDto { Status = RequestStatus.Approved });
+
+        Assert.Equal(ReviewResultCode.Success, result.Code);
+        Assert.Equal(RequestStatus.Approved, repository.Request.Status);
+        Assert.Empty(notifications.StatusRequests);
     }
 
     [Fact]
@@ -107,6 +152,40 @@ public sealed class WorkflowNotificationTests
         Assert.Equal("Water", request.ResourceName);
     }
 
+    [Fact]
+    public async Task MissingAllocationRecipientSkipsNotificationWithoutFailingAllocation()
+    {
+        var allocation = new ResourceAllocation
+        {
+            Id = Guid.NewGuid(),
+            ResourceId = Guid.NewGuid(),
+            AssistanceRequestId = Guid.NewGuid(),
+            QuantityAllocated = 3,
+            AllocatedAt = DateTime.UtcNow
+        };
+        var repository = new ResourceAllocationRepositoryStub(allocation)
+        {
+            NotificationRecipient = null
+        };
+        var notifications = new NotificationServiceStub();
+        var service = new ResourceAllocationService(
+            repository,
+            notifications,
+            NullLogger<ResourceAllocationService>.Instance);
+
+        var result = await service.AllocateAsync(
+            new CreateResourceAllocationDto
+            {
+                ResourceId = allocation.ResourceId,
+                AssistanceRequestId = allocation.AssistanceRequestId,
+                QuantityAllocated = allocation.QuantityAllocated
+            });
+
+        Assert.Equal(ResourceAllocationFailure.None, result.Failure);
+        Assert.Equal(1, repository.AllocationCount);
+        Assert.Empty(notifications.AllocationRequests);
+    }
+
     private static RequestService CreateRequestService(
         RequestRepositoryStub repository,
         NotificationServiceStub notifications) =>
@@ -131,10 +210,15 @@ public sealed class WorkflowNotificationTests
         }
 
         public AssistanceRequest Request { get; }
+        public AssistanceRequest? AddedRequest { get; private set; }
+        public string? NotificationRecipient { get; init; } = "citizen@example.test";
         public RequestStatusHistory? SavedHistory { get; private set; }
 
-        public Task AddAsync(AssistanceRequest request) =>
-            throw new NotSupportedException();
+        public Task AddAsync(AssistanceRequest request)
+        {
+            AddedRequest = request;
+            return Task.CompletedTask;
+        }
 
         public Task<AssistanceRequest?> GetByIdAsync(Guid id) =>
             Task.FromResult<AssistanceRequest?>(Request.Id == id ? Request : null);
@@ -143,7 +227,7 @@ public sealed class WorkflowNotificationTests
             GetByIdAsync(id);
 
         public Task<string?> GetNotificationRecipientAsync(Guid requestId) =>
-            Task.FromResult<string?>("citizen@example.test");
+            Task.FromResult(NotificationRecipient);
 
         public Task<IReadOnlyList<RequestStatusHistory>> GetHistoryAsync(Guid requestId) =>
             throw new NotSupportedException();
@@ -151,8 +235,16 @@ public sealed class WorkflowNotificationTests
         public Task AttachRecommendationAsync(
             Guid requestId,
             AiRecommendation recommendation,
-            RequestStatusHistory history) =>
-            throw new NotSupportedException();
+            RequestStatusHistory history)
+        {
+            SavedHistory = history;
+            if (AddedRequest is not null)
+            {
+                AddedRequest.Status = history.ToStatus;
+            }
+
+            return Task.CompletedTask;
+        }
 
         public Task SaveReviewAsync(RequestStatusHistory history, AuditLog auditLog)
         {
@@ -185,6 +277,7 @@ public sealed class WorkflowNotificationTests
         ResourceAllocation allocation) : IResourceAllocationRepository
     {
         public int AllocationCount { get; private set; }
+        public string? NotificationRecipient { get; init; } = "citizen@example.test";
 
         public Task<(ResourceAllocation? Allocation, ResourceAllocationFailure Failure)>
             AllocateAsync(
@@ -203,7 +296,7 @@ public sealed class WorkflowNotificationTests
             Guid assistanceRequestId,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<(string?, string?)>(
-                ("citizen@example.test", "Water"));
+                (NotificationRecipient, "Water"));
     }
 
     private sealed class NotificationServiceStub : INotificationService

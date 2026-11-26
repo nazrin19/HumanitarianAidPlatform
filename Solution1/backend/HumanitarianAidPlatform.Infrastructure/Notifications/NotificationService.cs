@@ -61,7 +61,8 @@ public sealed class NotificationService : INotificationService
     {
         if (_notificationRepository is null)
         {
-            throw new InvalidOperationException(
+            throw new NotificationPersistenceException(
+                "ReadHistory",
                 "Notification history is unavailable because no repository is configured.");
         }
 
@@ -122,8 +123,10 @@ public sealed class NotificationService : INotificationService
             if (result.IsDuplicate)
             {
                 _logger.LogInformation(
-                    "Duplicate notification event {EventId} suppressed for {Channel}, correlation {CorrelationId}",
+                    "Duplicate notification event {EventId} reused prior delivery outcome {DeliveryStatus} (succeeded: {Succeeded}) for {Channel}, correlation {CorrelationId}",
                     eventId,
+                    result.Status,
+                    result.Succeeded,
                     request.Channel,
                     result.CorrelationId);
             }
@@ -163,7 +166,32 @@ public sealed class NotificationService : INotificationService
 
         if (_notificationRepository is not null)
         {
-            await _notificationRepository.AddAsync(notification, CancellationToken.None);
+            try
+            {
+                await _notificationRepository.AddAsync(
+                    notification,
+                    CancellationToken.None);
+            }
+            catch (NotificationPersistenceException exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "Notification delivery was not attempted because its pending record could not be persisted for {Channel}, correlation {CorrelationId}.",
+                    request.Channel,
+                    correlationId);
+                return PersistenceFailureResult(
+                    request.Channel,
+                    correlationId,
+                    attemptedAt,
+                    "The notification was not sent because its pending attempt could not be persisted.");
+            }
+        }
+        else
+        {
+            _logger.LogWarning(
+                "Notification history is not configured; attempting non-persisted delivery through {Channel}, correlation {CorrelationId}.",
+                request.Channel,
+                correlationId);
         }
 
         _logger.LogInformation(
@@ -188,17 +216,10 @@ public sealed class NotificationService : INotificationService
                     request.Message,
                     correlationId,
                     cancellationToken),
-                NotificationChannel.InApp => new NotificationDeliveryResult(
-                    true,
-                    NotificationDeliveryStatus.MockSent,
-                    NotificationChannel.InApp,
+                NotificationChannel.InApp => CreateInAppSimulationResult(
                     attemptedAt,
-                    DateTimeOffset.UtcNow,
-                    null,
-                    "In-app notification is a sandbox simulation; its outcome is persisted when a repository is configured.",
                     correlationId,
-                    1,
-                    null),
+                    recipientMask),
                 _ => new NotificationDeliveryResult(
                     false,
                     NotificationDeliveryStatus.Failed,
@@ -272,7 +293,31 @@ public sealed class NotificationService : INotificationService
             notification.CorrelationId = result.CorrelationId;
             notification.AttemptCount = result.AttemptCount;
             notification.DeliveryCompletedAt = result.CompletedAt?.UtcDateTime;
-            await _notificationRepository.UpdateAsync(notification, CancellationToken.None);
+            try
+            {
+                await _notificationRepository.UpdateAsync(
+                    notification,
+                    CancellationToken.None);
+            }
+            catch (NotificationPersistenceException exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "Notification result could not be persisted after provider completion through {Channel}; provider succeeded {Succeeded}, status {DeliveryStatus}, correlation {CorrelationId}.",
+                    request.Channel,
+                    result.Succeeded,
+                    result.Status,
+                    correlationId);
+
+                if (result.Succeeded)
+                {
+                    result = result with
+                    {
+                        ErrorCode = "NOTIFICATION_STATUS_PERSISTENCE_FAILED",
+                        ErrorMessage = "Delivery succeeded, but its final status could not be persisted."
+                    };
+                }
+            }
         }
 
         if (result.Succeeded)
@@ -295,6 +340,46 @@ public sealed class NotificationService : INotificationService
 
         return result;
     }
+
+    private NotificationDeliveryResult CreateInAppSimulationResult(
+        DateTimeOffset attemptedAt,
+        Guid correlationId,
+        string recipientMask)
+    {
+        _logger.LogWarning(
+            "In-app notification for recipient {RecipientMask} is simulation-only; no user-facing inbox delivery occurred, correlation {CorrelationId}",
+            recipientMask,
+            correlationId);
+
+        return new NotificationDeliveryResult(
+            true,
+            NotificationDeliveryStatus.MockSent,
+            NotificationChannel.InApp,
+            attemptedAt,
+            DateTimeOffset.UtcNow,
+            null,
+            "In-app delivery is a simulation only; no user-facing inbox delivery occurred.",
+            correlationId,
+            1,
+            null);
+    }
+
+    private static NotificationDeliveryResult PersistenceFailureResult(
+        NotificationChannel channel,
+        Guid correlationId,
+        DateTimeOffset attemptedAt,
+        string message) =>
+        new(
+            false,
+            NotificationDeliveryStatus.Failed,
+            channel,
+            attemptedAt,
+            DateTimeOffset.UtcNow,
+            "NOTIFICATION_PERSISTENCE_FAILED",
+            message,
+            correlationId,
+            0,
+            null);
 
     private static NotificationDeliveryResult CancelledResult(
         NotificationChannel channel,

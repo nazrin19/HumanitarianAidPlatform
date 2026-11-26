@@ -11,9 +11,15 @@ namespace HumanitarianAidPlatform.Tests;
 public class NotificationServiceTests
 {
     [Fact]
-    public async Task EmailDeliveryWithoutProviderConfigurationFallsBackToMock()
+    public async Task EmailDeliveryUsesExplicitSandboxModeForMock()
     {
-        var configuration = new ConfigurationBuilder().Build();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Notifications:Providers:Email:Enabled"] = "true",
+                ["Notifications:Providers:Email:Mode"] = "Sandbox"
+            })
+            .Build();
         var senderLogger = new RecordingLogger<EmailSender>();
         var serviceLogger = new RecordingLogger<NotificationService>();
         var sms = new StubSmsSender();
@@ -141,9 +147,15 @@ public class NotificationServiceTests
     }
 
     [Fact]
-    public async Task SmsDeliveryWithoutProviderConfigurationFallsBackToMock()
+    public async Task SmsDeliveryUsesExplicitSandboxModeForMock()
     {
-        var configuration = new ConfigurationBuilder().Build();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Notifications:Providers:Sms:Enabled"] = "true",
+                ["Notifications:Providers:Sms:Mode"] = "Sandbox"
+            })
+            .Build();
         var senderLogger = new RecordingLogger<SmsSender>();
         var sender = new SmsSender(configuration, senderLogger);
 
@@ -191,6 +203,55 @@ public class NotificationServiceTests
         Assert.Equal("EMAIL_PROVIDER_NOT_IMPLEMENTED", result.ErrorCode);
         Assert.NotNull(result.ErrorMessage);
         Assert.NotNull(result.CompletedAt);
+    }
+
+    [Fact]
+    public async Task DisabledEmailProviderDoesNotReportMockSuccess()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Notifications:Providers:Email:Enabled"] = "false",
+                ["Notifications:Providers:Email:Mode"] = "Sandbox"
+            })
+            .Build();
+        var sender = new EmailSender(
+            configuration,
+            new RecordingLogger<EmailSender>());
+
+        var result = await sender.SendAsync(
+            "citizen@example.test",
+            "Status update",
+            "Approved",
+            Guid.NewGuid(),
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("EMAIL_PROVIDER_DISABLED", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UnknownSmsProviderModeReturnsConfigurationFailure()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Notifications:Providers:Sms:Enabled"] = "true",
+                ["Notifications:Providers:Sms:Mode"] = "Demo"
+            })
+            .Build();
+        var sender = new SmsSender(
+            configuration,
+            new RecordingLogger<SmsSender>());
+
+        var result = await sender.SendAsync(
+            "+15555550100",
+            "Status update",
+            Guid.NewGuid(),
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("SMS_PROVIDER_MODE_INVALID", result.ErrorCode);
     }
 
     [Fact]
@@ -338,15 +399,16 @@ public class NotificationServiceTests
     }
 
     [Fact]
-    public async Task InAppChannelReturnsSandboxOutcomeWithoutProviderCredentials()
+    public async Task InAppChannelIsLoggedAsSimulationWithoutUserFacingDelivery()
     {
         var repository = new RecordingNotificationRepository();
+        var logger = new RecordingLogger<NotificationService>();
         var service = new NotificationService(
             new StubEmailSender(),
             new StubSmsSender(),
             new NotificationDeliveryDeduplicator(),
             repository,
-            new RecordingLogger<NotificationService>());
+            logger);
 
         var result = await service.SendAsync(
             new NotificationRequest
@@ -360,7 +422,10 @@ public class NotificationServiceTests
         Assert.True(result.Succeeded);
         Assert.Equal(NotificationDeliveryStatus.MockSent, result.Status);
         Assert.Equal(NotificationChannel.InApp, result.Channel);
-        Assert.Contains("persisted", result.ErrorMessage);
+        Assert.Contains("simulation only", result.ErrorMessage);
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("no user-facing inbox delivery occurred"));
         Assert.True(Assert.Single(repository.Notifications).IsSent);
     }
 
@@ -401,6 +466,37 @@ public class NotificationServiceTests
         Assert.Equal(NotificationDeliveryStatus.InvalidInput, result.Status);
         Assert.Equal("INVALID_NOTIFICATION_REQUEST", result.ErrorCode);
         Assert.Equal(0, result.AttemptCount);
+    }
+
+    [Theory]
+    [InlineData(NotificationChannel.Email, "not-an-email")]
+    [InlineData(NotificationChannel.Email, "citizen@")]
+    [InlineData(NotificationChannel.Sms, "abc5550100")]
+    [InlineData(NotificationChannel.Sms, "12345")]
+    public async Task InvalidChannelRecipientFormatReturnsInvalidInput(
+        NotificationChannel channel,
+        string recipient)
+    {
+        var emailSender = new StubEmailSender();
+        var smsSender = new StubSmsSender();
+        var service = new NotificationService(
+            emailSender,
+            smsSender,
+            new RecordingLogger<NotificationService>());
+
+        var result = await service.SendAsync(
+            new NotificationRequest
+            {
+                Recipient = recipient,
+                Message = "Test",
+                Channel = channel
+            },
+            CancellationToken.None);
+
+        Assert.Equal(NotificationDeliveryStatus.InvalidInput, result.Status);
+        Assert.Equal("INVALID_NOTIFICATION_REQUEST", result.ErrorCode);
+        Assert.Equal(0, emailSender.SendCount);
+        Assert.Equal(0, smsSender.SendCount);
     }
 
     [Fact]
@@ -637,7 +733,7 @@ public class NotificationServiceTests
     }
 
     [Fact]
-    public async Task CompletedFailureIsReusedForRepeatedEvent()
+    public async Task FailedDeliveryCanRetryAndSuccessfulOutcomeIsThenCached()
     {
         var sender = new StubEmailSender
         {
@@ -664,12 +760,24 @@ public class NotificationServiceTests
         };
 
         var first = await service.SendAsync(request, CancellationToken.None);
+        sender.Result = new NotificationDeliveryResult(
+            true,
+            NotificationDeliveryStatus.Sent,
+            NotificationChannel.Email,
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            null,
+            null);
         var repeated = await service.SendAsync(request, CancellationToken.None);
+        var third = await service.SendAsync(request, CancellationToken.None);
 
         Assert.False(first.Succeeded);
-        Assert.True(repeated.IsDuplicate);
-        Assert.Equal(1, sender.SendCount);
-        Assert.Equal("EMAIL_DELIVERY_FAILED", repeated.ErrorCode);
+        Assert.False(first.IsDuplicate);
+        Assert.True(repeated.Succeeded);
+        Assert.False(repeated.IsDuplicate);
+        Assert.True(third.IsDuplicate);
+        Assert.True(third.Succeeded);
+        Assert.Equal(2, sender.SendCount);
     }
 
     [Fact]
@@ -828,6 +936,89 @@ public class NotificationServiceTests
     }
 
     [Fact]
+    public async Task PendingPersistenceFailurePreventsProviderDelivery()
+    {
+        var repository = new RecordingNotificationRepository
+        {
+            AddException = new NotificationPersistenceException(
+                "CreateAttempt",
+                "Test storage failure.")
+        };
+        var emailSender = new StubEmailSender();
+        var service = new NotificationService(
+            emailSender,
+            new StubSmsSender(),
+            new NotificationDeliveryDeduplicator(),
+            repository,
+            new RecordingLogger<NotificationService>());
+
+        var result = await service.SendAsync(
+            new NotificationRequest
+            {
+                EventId = Guid.NewGuid(),
+                Recipient = "citizen@example.test",
+                Message = "Approved",
+                Channel = NotificationChannel.Email
+            },
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("NOTIFICATION_PERSISTENCE_FAILED", result.ErrorCode);
+        Assert.Equal(0, result.AttemptCount);
+        Assert.Equal(0, emailSender.SendCount);
+        Assert.Equal(0, repository.UpdateCount);
+    }
+
+    [Fact]
+    public async Task FinalPersistenceFailureDoesNotMisreportSuccessfulDeliveryOrRetryIt()
+    {
+        var repository = new RecordingNotificationRepository
+        {
+            UpdateException = new NotificationPersistenceException(
+                "UpdateAttempt",
+                "Test storage failure.")
+        };
+        var emailSender = new StubEmailSender();
+        var service = new NotificationService(
+            emailSender,
+            new StubSmsSender(),
+            new NotificationDeliveryDeduplicator(),
+            repository,
+            new RecordingLogger<NotificationService>());
+        var request = new NotificationRequest
+        {
+            EventId = Guid.NewGuid(),
+            Recipient = "citizen@example.test",
+            Message = "Approved",
+            Channel = NotificationChannel.Email
+        };
+
+        var result = await service.SendAsync(request, CancellationToken.None);
+        var duplicate = await service.SendAsync(request, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(NotificationDeliveryStatus.Sent, result.Status);
+        Assert.Equal("NOTIFICATION_STATUS_PERSISTENCE_FAILED", result.ErrorCode);
+        Assert.True(duplicate.Succeeded);
+        Assert.True(duplicate.IsDuplicate);
+        Assert.Equal(1, emailSender.SendCount);
+    }
+
+    [Fact]
+    public async Task MissingRepositoryMakesHistoryFailureExplicit()
+    {
+        var service = new NotificationService(
+            new StubEmailSender(),
+            new StubSmsSender(),
+            new RecordingLogger<NotificationService>());
+
+        var exception = await Assert.ThrowsAsync<NotificationPersistenceException>(
+            () => service.GetRecentAsync(10, CancellationToken.None));
+
+        Assert.Equal("ReadHistory", exception.Operation);
+    }
+
+    [Fact]
     public async Task RecentHistoryReturnsMaskedRecipientAndPersistedDeliveryDetails()
     {
         var createdAt = new DateTime(2026, 11, 26, 12, 0, 0, DateTimeKind.Utc);
@@ -872,6 +1063,8 @@ public class NotificationServiceTests
         public List<Notification> Notifications { get; } = [];
         public int AddCount { get; private set; }
         public int UpdateCount { get; private set; }
+        public NotificationPersistenceException? AddException { get; init; }
+        public NotificationPersistenceException? UpdateException { get; init; }
 
         public Task<IReadOnlyList<Notification>> GetRecentAsync(
             int limit,
@@ -887,6 +1080,11 @@ public class NotificationServiceTests
             CancellationToken cancellationToken)
         {
             AddCount++;
+            if (AddException is not null)
+            {
+                return Task.FromException(AddException);
+            }
+
             Notifications.Add(notification);
             return Task.CompletedTask;
         }
@@ -896,13 +1094,15 @@ public class NotificationServiceTests
             CancellationToken cancellationToken)
         {
             UpdateCount++;
-            return Task.CompletedTask;
+            return UpdateException is null
+                ? Task.CompletedTask
+                : Task.FromException(UpdateException);
         }
     }
 
     private sealed class StubEmailSender : IEmailSender
     {
-        public NotificationDeliveryResult Result { get; init; } =
+        public NotificationDeliveryResult Result { get; set; } =
             new(
                 true,
                 NotificationDeliveryStatus.Sent,

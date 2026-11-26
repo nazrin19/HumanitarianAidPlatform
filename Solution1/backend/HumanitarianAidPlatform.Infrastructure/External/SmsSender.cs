@@ -28,17 +28,50 @@ public sealed class SmsSender : ISmsSender
         var enabled = bool.TryParse(
             _configuration["Notifications:Providers:Sms:Enabled"],
             out var isEnabled) && isEnabled;
-        var mode = _configuration["Notifications:Providers:Sms:Mode"] ?? "Sandbox";
-        var sandbox = !enabled ||
-            !string.Equals(mode, "Real", StringComparison.OrdinalIgnoreCase);
+        var mode = _configuration["Notifications:Providers:Sms:Mode"];
 
         _logger.LogInformation(
-            "SMS notification attempt for recipient {RecipientMask}, correlation {CorrelationId}. Real provider enabled: {Enabled}",
+            "SMS notification attempt for recipient {RecipientMask}, correlation {CorrelationId}. Provider enabled: {Enabled}, mode: {Mode}",
             RecipientMasking.Mask(recipient),
             correlationId,
-            enabled);
+            enabled,
+            mode ?? "(missing)");
 
-        if (sandbox)
+        if (!enabled)
+        {
+            _logger.LogWarning(
+                "SMS notification provider is disabled for recipient {RecipientMask}, correlation {CorrelationId}",
+                RecipientMasking.Mask(recipient),
+                correlationId);
+            return Failure(
+                attemptedAt,
+                correlationId,
+                "SMS_PROVIDER_DISABLED",
+                "SMS delivery is disabled. Enable the provider and select Sandbox or Real mode.");
+        }
+
+        var isSandbox = string.Equals(
+            mode,
+            "Sandbox",
+            StringComparison.OrdinalIgnoreCase);
+        var isReal = string.Equals(
+            mode,
+            "Real",
+            StringComparison.OrdinalIgnoreCase);
+        if (!isSandbox && !isReal)
+        {
+            _logger.LogError(
+                "SMS notification provider has an invalid mode for recipient {RecipientMask}, correlation {CorrelationId}",
+                RecipientMasking.Mask(recipient),
+                correlationId);
+            return Failure(
+                attemptedAt,
+                correlationId,
+                "SMS_PROVIDER_MODE_INVALID",
+                "SMS provider mode must be explicitly configured as Sandbox or Real.");
+        }
+
+        if (isSandbox)
         {
             await Task.Delay(1, cancellationToken);
             _logger.LogWarning(
@@ -53,7 +86,7 @@ public sealed class SmsSender : ISmsSender
                 attemptedAt,
                 DateTimeOffset.UtcNow,
                 null,
-                "Sandbox mode: real SMS provider is not configured.",
+                "Sandbox mode: this is a simulated SMS delivery for testing or demos; no SMS was sent.",
                 correlationId,
                 1,
                 null);
@@ -63,21 +96,15 @@ public sealed class SmsSender : ISmsSender
         {
             await Task.Delay(1, cancellationToken);
             _logger.LogError(
-                "SMS provider mode is Real, but no real SMS SDK is configured for recipient {RecipientMask}, correlation {CorrelationId}",
+                "SMS provider mode is Real, but no SMS SDK or credentials are configured for recipient {RecipientMask}, correlation {CorrelationId}",
                 RecipientMasking.Mask(recipient),
                 correlationId);
 
-            return new NotificationDeliveryResult(
-                false,
-                NotificationDeliveryStatus.Failed,
-                NotificationChannel.Sms,
+            return Failure(
                 attemptedAt,
-                DateTimeOffset.UtcNow,
-                "SMS_PROVIDER_NOT_IMPLEMENTED",
-                "Real SMS delivery is not implemented for this provider mode.",
                 correlationId,
-                1,
-                null);
+                "SMS_PROVIDER_NOT_IMPLEMENTED",
+                "Real SMS delivery is unavailable because no provider SDK or credentials are configured.");
         }
         catch (OperationCanceledException)
         {
@@ -105,4 +132,21 @@ public sealed class SmsSender : ISmsSender
                 null);
         }
     }
+
+    private static NotificationDeliveryResult Failure(
+        DateTimeOffset attemptedAt,
+        Guid correlationId,
+        string errorCode,
+        string errorMessage) =>
+        new(
+            false,
+            NotificationDeliveryStatus.Failed,
+            NotificationChannel.Sms,
+            attemptedAt,
+            DateTimeOffset.UtcNow,
+            errorCode,
+            errorMessage,
+            correlationId,
+            1,
+            null);
 }

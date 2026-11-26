@@ -82,7 +82,7 @@ public class ResourceAllocationService
         if (_notificationService is null)
         {
             _logger.LogWarning(
-                "Allocation {AllocationId} was saved, but notification service is not configured.",
+                "Allocation {AllocationId} was saved, but notification was skipped because the notification service is not configured.",
                 allocation.Id);
             return;
         }
@@ -96,7 +96,7 @@ public class ResourceAllocationService
             if (string.IsNullOrWhiteSpace(details.Recipient))
             {
                 _logger.LogWarning(
-                    "Allocation {AllocationId} was saved, but no notification recipient was found for request {RequestId}.",
+                    "Allocation notification was skipped for {AllocationId}: recipient lookup returned null or whitespace for request {RequestId}.",
                     allocation.Id,
                     allocation.AssistanceRequestId);
                 return;
@@ -113,6 +113,7 @@ public class ResourceAllocationService
                     ResourceName = details.ResourceName,
                     Quantity = allocation.QuantityAllocated
                 },
+                // The allocation is committed; attempt delivery despite a cancelled HTTP request.
                 CancellationToken.None);
 
             if (result.Succeeded)
@@ -126,10 +127,12 @@ public class ResourceAllocationService
             else
             {
                 _logger.LogWarning(
-                    "Allocation notification failed for {AllocationId} with {DeliveryStatus}: {ErrorCode}. The allocation remains saved.",
+                    "Allocation notification failed for {AllocationId} with {DeliveryStatus}: {ErrorCode} ({ErrorMessage}), correlation {CorrelationId}. The allocation remains saved.",
                     allocation.Id,
                     result.Status,
-                    result.ErrorCode);
+                    result.ErrorCode,
+                    result.ErrorMessage,
+                    result.CorrelationId);
             }
         }
         catch (Exception exception)

@@ -22,6 +22,7 @@ namespace HumanitarianAidPlatform.Api.Controllers
         [ProducesResponseType(typeof(IReadOnlyList<NotificationHistoryItem>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<IReadOnlyList<NotificationHistoryItem>>> GetRecent(
             [FromQuery] int limit = 50,
             CancellationToken cancellationToken = default)

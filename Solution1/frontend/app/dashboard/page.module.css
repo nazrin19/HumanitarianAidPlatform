@@ -163,14 +163,38 @@
   stroke-width: 1.8;
 }
 
-.bell i {
+.bellBadge {
   position: absolute;
-  top: 8px;
-  right: 9px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+  top: -4px;
+  right: -5px;
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 4px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.bellBadgeFailed,
+.bellBadgeError {
   background: #d93025;
+}
+
+.bellBadgeLoading {
+  background: #667085;
+}
+
+.bellBadgeInfo {
+  background: #667085;
+}
+
+.bellBadgeClear {
+  background: #1b6b47;
 }
 
 .avatar {
@@ -692,6 +716,28 @@
   align-items: end;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.notificationTestTools {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.notificationTestTools h3,
+.notificationSubheading {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.notificationTestTools .note {
+  margin: 0 0 12px;
+}
+
+.notificationSubheading {
+  margin-top: 18px;
 }
 
 .notificationForm label {
