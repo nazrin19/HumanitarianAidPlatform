@@ -9,6 +9,7 @@ using HumanitarianAidPlatform.Application.Requests;
 using HumanitarianAidPlatform.Application.Resources;
 using HumanitarianAidPlatform.Application.Shelters;
 using HumanitarianAidPlatform.Application.Volunteers;
+using HumanitarianAidPlatform.Application.UserViews;
 using HumanitarianAidPlatform.Infrastructure.Ai;
 using HumanitarianAidPlatform.Infrastructure.External;
 using HumanitarianAidPlatform.Infrastructure.Notifications;
@@ -154,6 +155,7 @@ builder.Services.AddScoped<IDonationRepository, DonationRepository>();
 builder.Services.AddScoped<IDonationService, DonationService>();
 builder.Services.AddScoped<IVolunteerTaskRepository, VolunteerTaskRepository>();
 builder.Services.AddScoped<IVolunteerTaskService, VolunteerTaskService>();
+builder.Services.AddScoped<IUserViewService, UserViewService>();
 
 // Notification services
 builder.Services.AddScoped<EmailSender>();

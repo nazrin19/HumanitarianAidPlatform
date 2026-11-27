@@ -45,6 +45,12 @@ public class VolunteerService : IVolunteerService
         return volunteer is null ? null : ToDto(volunteer);
     }
 
+    public async Task<VolunteerResponseDto?> GetByUserIdAsync(Guid userId)
+    {
+        var volunteer = await _repository.GetByUserIdAsync(userId);
+        return volunteer is null ? null : ToDto(volunteer);
+    }
+
     public async Task<VolunteerResponseDto?> UpdateAsync(Guid id, CreateVolunteerDto dto)
     {
        
@@ -52,6 +58,27 @@ public class VolunteerService : IVolunteerService
         if (volunteer is null) return null;
 
         if (await _repository.EmailExistsAsync(dto.Email.Trim(), id))
+            throw new InvalidOperationException(
+                "A volunteer with this email already exists.");
+
+        volunteer.FullName = dto.FullName.Trim();
+        volunteer.Email = dto.Email.Trim();
+        volunteer.Phone = dto.Phone?.Trim();
+        volunteer.Skills = dto.Skills?.Trim();
+        volunteer.Availability = dto.Availability;
+
+        await _repository.UpdateAsync(volunteer);
+        return ToDto(volunteer);
+    }
+
+    public async Task<VolunteerResponseDto?> UpdateMyProfileAsync(
+        Guid userId,
+        UpdateVolunteerProfileDto dto)
+    {
+        var volunteer = await _repository.GetByUserIdAsync(userId);
+        if (volunteer is null) return null;
+
+        if (await _repository.EmailExistsAsync(dto.Email.Trim(), volunteer.Id))
             throw new InvalidOperationException(
                 "A volunteer with this email already exists.");
 
