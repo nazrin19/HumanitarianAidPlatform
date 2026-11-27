@@ -8,6 +8,7 @@ public interface IRequestRepository
     Task AddAsync(AssistanceRequest request);
     Task<AssistanceRequest?> GetByIdAsync(Guid id);
     Task<AssistanceRequest?> GetTrackedByIdAsync(Guid id);
+    Task<string?> GetNotificationRecipientAsync(Guid requestId);
     Task<IReadOnlyList<RequestStatusHistory>> GetHistoryAsync(Guid requestId);
     Task AttachRecommendationAsync(Guid requestId, AiRecommendation recommendation, RequestStatusHistory history);
     Task SaveReviewAsync(

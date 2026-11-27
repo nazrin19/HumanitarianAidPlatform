@@ -15,4 +15,9 @@ public interface IResourceAllocationRepository
             Guid assistanceRequestId,
             int quantity,
             CancellationToken cancellationToken = default);
+
+    Task<(string? Recipient, string? ResourceName)> GetNotificationDetailsAsync(
+        Guid resourceId,
+        Guid assistanceRequestId,
+        CancellationToken cancellationToken = default);
 }

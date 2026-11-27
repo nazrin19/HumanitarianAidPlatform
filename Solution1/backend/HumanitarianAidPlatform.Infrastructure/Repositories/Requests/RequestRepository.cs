@@ -3,6 +3,7 @@ using HumanitarianAidPlatform.Application.Common;
 using HumanitarianAidPlatform.Domain.Entities.Requests;
 using HumanitarianAidPlatform.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace HumanitarianAidPlatform.Infrastructure.Repositories.Requests;
 
@@ -10,10 +11,14 @@ public class RequestRepository : IRequestRepository
 {
     private static readonly TimeSpan OverdueAfter = TimeSpan.FromHours(24);
     private readonly AppDbContext _db;
+    private readonly ILogger<RequestRepository> _logger;
 
-    public RequestRepository(AppDbContext db)
+    public RequestRepository(
+        AppDbContext db,
+        ILogger<RequestRepository> logger)
     {
         _db = db;
+        _logger = logger;
     }
 
     public async Task AddAsync(AssistanceRequest request)
@@ -27,6 +32,49 @@ public class RequestRepository : IRequestRepository
 
     public async Task<AssistanceRequest?> GetTrackedByIdAsync(Guid id) =>
         await _db.AssistanceRequests.FirstOrDefaultAsync(r => r.Id == id);
+
+    public async Task<string?> GetNotificationRecipientAsync(Guid requestId)
+    {
+        var request = await _db.AssistanceRequests
+            .AsNoTracking()
+            .Where(item => item.Id == requestId)
+            .Select(item => new { item.CitizenId })
+            .FirstOrDefaultAsync();
+
+        if (request is null)
+        {
+            _logger.LogWarning(
+                "Could not resolve notification recipient for request {RequestId}: request row was not found.",
+                requestId);
+            return null;
+        }
+
+        var user = await _db.Users
+            .AsNoTracking()
+            .Where(item => item.Id == request.CitizenId)
+            .Select(item => new { item.Email })
+            .FirstOrDefaultAsync();
+
+        if (user is null)
+        {
+            _logger.LogWarning(
+                "Could not resolve notification recipient for request {RequestId}: citizen join failed for user {UserId}.",
+                requestId,
+                request.CitizenId);
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(user.Email))
+        {
+            _logger.LogWarning(
+                "Could not resolve notification recipient for request {RequestId}: user {UserId} has no email address.",
+                requestId,
+                request.CitizenId);
+            return null;
+        }
+
+        return user.Email;
+    }
 
     public async Task<IReadOnlyList<RequestStatusHistory>> GetHistoryAsync(Guid requestId) =>
         await _db.RequestStatusHistories

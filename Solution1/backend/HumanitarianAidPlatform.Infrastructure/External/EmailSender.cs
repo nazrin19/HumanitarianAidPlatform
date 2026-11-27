@@ -29,17 +29,50 @@ public sealed class EmailSender : IEmailSender
         var enabled = bool.TryParse(
             _configuration["Notifications:Providers:Email:Enabled"],
             out var isEnabled) && isEnabled;
-        var mode = _configuration["Notifications:Providers:Email:Mode"] ?? "Sandbox";
-        var sandbox = !enabled ||
-            !string.Equals(mode, "Real", StringComparison.OrdinalIgnoreCase);
+        var mode = _configuration["Notifications:Providers:Email:Mode"];
 
         _logger.LogInformation(
-            "Email notification attempt for recipient {RecipientMask}, correlation {CorrelationId}. Real provider enabled: {Enabled}",
+            "Email notification attempt for recipient {RecipientMask}, correlation {CorrelationId}. Provider enabled: {Enabled}, mode: {Mode}",
             RecipientMasking.Mask(recipient),
             correlationId,
-            enabled);
+            enabled,
+            mode ?? "(missing)");
 
-        if (sandbox)
+        if (!enabled)
+        {
+            _logger.LogWarning(
+                "Email notification provider is disabled for recipient {RecipientMask}, correlation {CorrelationId}",
+                RecipientMasking.Mask(recipient),
+                correlationId);
+            return Failure(
+                attemptedAt,
+                correlationId,
+                "EMAIL_PROVIDER_DISABLED",
+                "Email delivery is disabled. Enable the provider and select Sandbox or Real mode.");
+        }
+
+        var isSandbox = string.Equals(
+            mode,
+            "Sandbox",
+            StringComparison.OrdinalIgnoreCase);
+        var isReal = string.Equals(
+            mode,
+            "Real",
+            StringComparison.OrdinalIgnoreCase);
+        if (!isSandbox && !isReal)
+        {
+            _logger.LogError(
+                "Email notification provider has an invalid mode for recipient {RecipientMask}, correlation {CorrelationId}",
+                RecipientMasking.Mask(recipient),
+                correlationId);
+            return Failure(
+                attemptedAt,
+                correlationId,
+                "EMAIL_PROVIDER_MODE_INVALID",
+                "Email provider mode must be explicitly configured as Sandbox or Real.");
+        }
+
+        if (isSandbox)
         {
             await Task.Delay(1, cancellationToken);
             _logger.LogWarning(
@@ -54,7 +87,7 @@ public sealed class EmailSender : IEmailSender
                 attemptedAt,
                 DateTimeOffset.UtcNow,
                 null,
-                "Sandbox mode: real email provider is not configured.",
+                "Sandbox mode: this is a simulated email delivery for testing or demos; no email was sent.",
                 correlationId,
                 1,
                 null);
@@ -64,21 +97,15 @@ public sealed class EmailSender : IEmailSender
         {
             await Task.Delay(1, cancellationToken);
             _logger.LogError(
-                "Email provider mode is Real, but no real email SDK is configured for recipient {RecipientMask}, correlation {CorrelationId}",
+                "Email provider mode is Real, but no email SDK or credentials are configured for recipient {RecipientMask}, correlation {CorrelationId}",
                 RecipientMasking.Mask(recipient),
                 correlationId);
 
-            return new NotificationDeliveryResult(
-                false,
-                NotificationDeliveryStatus.Failed,
-                NotificationChannel.Email,
+            return Failure(
                 attemptedAt,
-                DateTimeOffset.UtcNow,
-                "EMAIL_PROVIDER_NOT_IMPLEMENTED",
-                "Real email delivery is not implemented for this provider mode.",
                 correlationId,
-                1,
-                null);
+                "EMAIL_PROVIDER_NOT_IMPLEMENTED",
+                "Real email delivery is unavailable because no provider SDK or credentials are configured.");
         }
         catch (OperationCanceledException)
         {
@@ -106,4 +133,21 @@ public sealed class EmailSender : IEmailSender
                 null);
         }
     }
+
+    private static NotificationDeliveryResult Failure(
+        DateTimeOffset attemptedAt,
+        Guid correlationId,
+        string errorCode,
+        string errorMessage) =>
+        new(
+            false,
+            NotificationDeliveryStatus.Failed,
+            NotificationChannel.Email,
+            attemptedAt,
+            DateTimeOffset.UtcNow,
+            errorCode,
+            errorMessage,
+            correlationId,
+            1,
+            null);
 }

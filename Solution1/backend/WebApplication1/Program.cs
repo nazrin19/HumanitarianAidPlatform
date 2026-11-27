@@ -15,6 +15,7 @@ using HumanitarianAidPlatform.Infrastructure.External;
 using HumanitarianAidPlatform.Infrastructure.Notifications;
 using HumanitarianAidPlatform.Infrastructure.Persistence;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Donors;
+using HumanitarianAidPlatform.Infrastructure.Repositories.Notifications;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Requests;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Resources;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Shelters;
@@ -198,6 +199,7 @@ builder.Services.AddHttpClient<IGeocodingService, MappingClient>(
 builder.Services.AddSingleton<NotificationDeliveryDeduplicator>();
 builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddScoped<ISmsSender, SmsSender>();
+builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 
 var app = builder.Build();

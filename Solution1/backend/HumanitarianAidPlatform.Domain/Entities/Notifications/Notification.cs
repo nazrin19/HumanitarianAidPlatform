@@ -33,4 +33,11 @@ public class Notification
     public bool IsSent { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? SentAt { get; set; }
+    public Guid? EventId { get; set; }
+    public string DeliveryStatus { get; set; } = "Pending";
+    public string? ErrorCode { get; set; }
+    public string? ErrorMessage { get; set; }
+    public Guid? CorrelationId { get; set; }
+    public int AttemptCount { get; set; }
+    public DateTime? DeliveryCompletedAt { get; set; }
 }

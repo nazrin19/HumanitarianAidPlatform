@@ -176,6 +176,14 @@ public class AppDbContext : DbContext
                 .HasColumnName("Type")
                 .HasMaxLength(30)
                 .IsRequired();
+
+            n.Property(x => x.DeliveryStatus)
+                .HasMaxLength(30)
+                .HasDefaultValue("Unknown")
+                .IsRequired();
+
+            n.Property(x => x.ErrorCode)
+                .HasMaxLength(100);
         });
 
         // User configuration

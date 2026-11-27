@@ -163,14 +163,38 @@
   stroke-width: 1.8;
 }
 
-.bell i {
+.bellBadge {
   position: absolute;
-  top: 8px;
-  right: 9px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+  top: -4px;
+  right: -5px;
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 4px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.bellBadgeFailed,
+.bellBadgeError {
   background: #d93025;
+}
+
+.bellBadgeLoading {
+  background: #667085;
+}
+
+.bellBadgeInfo {
+  background: #667085;
+}
+
+.bellBadgeClear {
+  background: #1b6b47;
 }
 
 .avatar {
@@ -686,6 +710,56 @@
   padding: 8px 16px;
 }
 
+.notificationForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px auto;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.notificationTestTools {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.notificationTestTools h3,
+.notificationSubheading {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.notificationTestTools .note {
+  margin: 0 0 12px;
+}
+
+.notificationSubheading {
+  margin-top: 18px;
+}
+
+.notificationForm label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.notificationForm input,
+.notificationForm select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+}
+
 .button {
   padding: 8px 14px;
   border: 1.5px solid var(--green);
@@ -936,6 +1010,14 @@
   display: grid;
 }
 
+.notificationHistoryError {
+  color: #b42318;
+}
+
+.notificationHistoryError p {
+  margin: 0 0 8px;
+}
+
 .logEntry {
   display: flex;
   align-items: center;
@@ -967,6 +1049,11 @@
   font-size: 13px;
 }
 
+.notificationDetail {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
 .logEntry small {
   color: var(--muted);
   font-size: 12px;
@@ -995,6 +1082,17 @@
 .logFailed {
   background: #fde3e1;
   color: #b3261e;
+}
+
+@media (max-width: 680px) {
+  .notificationForm {
+    grid-template-columns: minmax(0, 1fr) 110px;
+  }
+
+  .notificationForm > .button {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
 }
 
 .toast {

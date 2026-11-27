@@ -7,8 +7,10 @@ using HumanitarianAidPlatform.Domain.Entities.Notifications;
 namespace HumanitarianAidPlatform.Infrastructure.Notifications;
 
 /// <summary>
-/// Keeps a process-local 24-hour idempotency window. Multi-instance deployments
-/// require a shared durable store for cross-process duplicate prevention.
+/// Keeps successful deliveries in a process-local 24-hour idempotency window.
+/// Failed and cancelled deliveries are not retained, so later attempts can retry.
+/// Multi-instance deployments require a shared durable store for cross-process
+/// duplicate prevention.
 /// </summary>
 public sealed class NotificationDeliveryDeduplicator
 {
@@ -58,15 +60,18 @@ public sealed class NotificationDeliveryDeduplicator
         try
         {
             var result = await delivery();
-            entry.Completion.TrySetResult(result);
 
-            if (result.Status is not NotificationDeliveryStatus.Cancelled)
+            if (result.Succeeded &&
+                result.Status is NotificationDeliveryStatus.Sent or
+                    NotificationDeliveryStatus.MockSent)
             {
                 entry.MarkCompleted(DateTimeOffset.UtcNow);
+                entry.Completion.TrySetResult(result);
             }
             else
             {
                 RemoveEntry(key, entry);
+                entry.Completion.TrySetResult(result);
             }
 
             return result;

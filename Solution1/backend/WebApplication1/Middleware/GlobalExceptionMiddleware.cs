@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using HumanitarianAidPlatform.Application.Notifications;
 
 namespace HumanitarianAidPlatform.Api.Middleware;
 
@@ -28,6 +29,8 @@ public sealed class GlobalExceptionMiddleware
         catch (Exception exception)
         {
             var traceId = context.TraceIdentifier;
+            var isNotificationPersistenceFailure =
+                exception is NotificationPersistenceException;
 
             _logger.LogError(
                 exception,
@@ -40,15 +43,22 @@ public sealed class GlobalExceptionMiddleware
                 throw;
 
             context.Response.Clear();
-            context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+            context.Response.StatusCode = isNotificationPersistenceFailure
+                ? (int)HttpStatusCode.ServiceUnavailable
+                : (int)HttpStatusCode.InternalServerError;
             context.Response.ContentType = "application/json";
 
             var response = new
             {
                 error = new
                 {
-                    code = "internal_server_error",
-                    message = "An unexpected error occurred.",
+                    code = isNotificationPersistenceFailure
+                        ? "notification_persistence_unavailable"
+                        : "internal_server_error",
+                    message = isNotificationPersistenceFailure
+                        ? "Notification persistence is temporarily unavailable."
+                        : "An unexpected error occurred.",
+                    operation = (exception as NotificationPersistenceException)?.Operation,
                     traceId,
                     detail = _environment.IsDevelopment()
                         ? exception.Message

@@ -17,6 +17,22 @@ namespace HumanitarianAidPlatform.Api.Controllers
             _notificationService = notificationService;
         }
 
+        /// <summary>Returns recent persisted notification attempts for authorized staff.</summary>
+        [HttpGet]
+        [ProducesResponseType(typeof(IReadOnlyList<NotificationHistoryItem>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<IReadOnlyList<NotificationHistoryItem>>> GetRecent(
+            [FromQuery] int limit = 50,
+            CancellationToken cancellationToken = default)
+        {
+            var notifications = await _notificationService.GetRecentAsync(
+                limit,
+                cancellationToken);
+            return Ok(notifications);
+        }
+
         [HttpPost("send")]
         [Authorize]
         [ProducesResponseType(typeof(NotificationDeliveryResult), StatusCodes.Status200OK)]

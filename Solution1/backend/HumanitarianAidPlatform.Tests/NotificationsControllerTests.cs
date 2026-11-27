@@ -1,10 +1,14 @@
 ﻿using HumanitarianAidPlatform.Application.Notifications;
 using HumanitarianAidPlatform.Domain.Entities.Notifications;
 using HumanitarianAidPlatform.Api.Controllers;
+using HumanitarianAidPlatform.Api.Middleware;
 using HumanitarianAidPlatform.Infrastructure.External;
 using HumanitarianAidPlatform.Infrastructure.Notifications;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Reflection;
 using Xunit;
@@ -13,6 +17,67 @@ namespace HumanitarianAidPlatform.Tests;
 
 public class NotificationsControllerTests
 {
+    [Fact]
+    public async Task NotificationPersistenceExceptionReturns503WithOperation()
+    {
+        var middleware = new GlobalExceptionMiddleware(
+            _ => throw new NotificationPersistenceException(
+                "ReadHistory",
+                "Test storage failure."),
+            NullLogger<GlobalExceptionMiddleware>.Instance,
+            new TestHostEnvironment());
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
+        context.Response.Body.Position = 0;
+        using var reader = new StreamReader(context.Response.Body);
+        var responseBody = await reader.ReadToEndAsync();
+        Assert.Contains("notification_persistence_unavailable", responseBody);
+        Assert.Contains("ReadHistory", responseBody);
+    }
+
+    [Fact]
+    public async Task GetRecentReturnsPersistedNotificationHistory()
+    {
+        var history = new[]
+        {
+            new NotificationHistoryItem(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                "ci***@example.test",
+                NotificationChannel.Email,
+                DateTimeOffset.UtcNow,
+                "MockSent",
+                true,
+                DateTimeOffset.UtcNow,
+                Guid.NewGuid(),
+                1,
+                null,
+                null)
+        };
+        var controller = new NotificationsController(
+            new MockNotificationService { History = history });
+
+        var response = await controller.GetRecent(50, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        Assert.Same(history, ok.Value);
+    }
+
+    [Fact]
+    public void GetRecentDocumentsNotificationPersistenceFailure()
+    {
+        var action = typeof(NotificationsController).GetMethod(
+            nameof(NotificationsController.GetRecent));
+        Assert.NotNull(action);
+        Assert.Contains(
+            action!.GetCustomAttributes<ProducesResponseTypeAttribute>(),
+            attribute => attribute.StatusCode == StatusCodes.Status503ServiceUnavailable);
+    }
+
     [Fact]
     public async Task CancellationResultReturns499()
     {
@@ -54,6 +119,60 @@ public class NotificationsControllerTests
 
         var accepted = Assert.IsType<AcceptedResult>(response.Result);
         Assert.Equal(202, accepted.StatusCode);
+    }
+
+    [Fact]
+    public async Task SentResultReturns200Ok()
+    {
+        var controller = new NotificationsController(
+            new FixedResultNotificationService(
+                new NotificationDeliveryResult(
+                    true,
+                    NotificationDeliveryStatus.Sent,
+                    NotificationChannel.Email,
+                    DateTimeOffset.UtcNow,
+                    DateTimeOffset.UtcNow,
+                    null,
+                    null)));
+
+        var response = await controller.Send(
+            new NotificationRequest
+            {
+                Recipient = "citizen@example.test",
+                Message = "Approved",
+                Channel = NotificationChannel.Email
+            },
+            CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        Assert.Equal(StatusCodes.Status200OK, ok.StatusCode);
+    }
+
+    [Fact]
+    public async Task FailedResultReturns502BadGateway()
+    {
+        var controller = new NotificationsController(
+            new FixedResultNotificationService(
+                new NotificationDeliveryResult(
+                    false,
+                    NotificationDeliveryStatus.Failed,
+                    NotificationChannel.Email,
+                    DateTimeOffset.UtcNow,
+                    DateTimeOffset.UtcNow,
+                    "EMAIL_PROVIDER_NOT_IMPLEMENTED",
+                    "Real email delivery is unavailable.")));
+
+        var response = await controller.Send(
+            new NotificationRequest
+            {
+                Recipient = "citizen@example.test",
+                Message = "Approved",
+                Channel = NotificationChannel.Email
+            },
+            CancellationToken.None);
+
+        var failure = Assert.IsType<ObjectResult>(response.Result);
+        Assert.Equal(StatusCodes.Status502BadGateway, failure.StatusCode);
     }
 
     [Fact]
@@ -148,11 +267,24 @@ public class NotificationsControllerTests
         Assert.Contains(400, statuses);
         Assert.Contains(401, statuses);
         Assert.Contains(403, statuses);
-        Assert.NotNull(typeof(NotificationsController).GetCustomAttribute<AuthorizeAttribute>());
+        Assert.Contains(200, statuses);
+        Assert.Contains(202, statuses);
+        Assert.Contains(499, statuses);
+        Assert.Contains(502, statuses);
+        var authorization = Assert.IsType<AuthorizeAttribute>(
+            typeof(NotificationsController).GetCustomAttribute<AuthorizeAttribute>());
+        Assert.Equal(
+            new[] { "Admin", "Coordinator", "CaseManager" },
+            authorization.Roles!.Split(','));
     }
 
     private sealed class InvalidInputNotificationService : INotificationService
     {
+        public Task<IReadOnlyList<NotificationHistoryItem>> GetRecentAsync(
+            int limit,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<NotificationHistoryItem>>([]);
+
         private static NotificationDeliveryResult InvalidResult(NotificationChannel channel) =>
             new(
                 false,
@@ -198,6 +330,39 @@ public class NotificationsControllerTests
             Assert.IsType<NotificationDeliveryResult>(badRequest.Value).Status);
     }
 
+    private sealed class TestHostEnvironment : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = Environments.Production;
+        public string ApplicationName { get; set; } = "NotificationTests";
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public IFileProvider ContentRootFileProvider { get; set; } =
+            new NullFileProvider();
+    }
+
+    private sealed class FixedResultNotificationService(
+        NotificationDeliveryResult result) : INotificationService
+    {
+        public Task<IReadOnlyList<NotificationHistoryItem>> GetRecentAsync(
+            int limit,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<NotificationHistoryItem>>([]);
+
+        public Task<NotificationDeliveryResult> SendAsync(
+            NotificationRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(result);
+
+        public Task<NotificationDeliveryResult> SendAssistanceRequestStatusAsync(
+            AssistanceRequestStatusNotificationRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(result);
+
+        public Task<NotificationDeliveryResult> SendAllocationAssignmentAsync(
+            AllocationAssignmentNotificationRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(result);
+    }
+
     private sealed class NeverEmailSender : IEmailSender
     {
         public Task<NotificationDeliveryResult> SendAsync(
@@ -221,6 +386,11 @@ public class NotificationsControllerTests
 
     private sealed class CancelledNotificationService : INotificationService
     {
+        public Task<IReadOnlyList<NotificationHistoryItem>> GetRecentAsync(
+            int limit,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<NotificationHistoryItem>>([]);
+
         public Task<NotificationDeliveryResult> SendAsync(
             NotificationRequest request,
             CancellationToken cancellationToken)
@@ -265,6 +435,13 @@ public class NotificationsControllerTests
 
     private sealed class MockNotificationService : INotificationService
     {
+        public IReadOnlyList<NotificationHistoryItem> History { get; init; } = [];
+
+        public Task<IReadOnlyList<NotificationHistoryItem>> GetRecentAsync(
+            int limit,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(History);
+
         public Task<NotificationDeliveryResult> SendAsync(
             NotificationRequest request,
             CancellationToken cancellationToken)
