@@ -19,4 +19,7 @@ public sealed record RegisterVolunteerRequest
 
     [StringLength(500)]
     public string? Skills { get; init; }
+
+    [Required, RegularExpression("^(Available|Busy|Inactive)$")]
+    public string Availability { get; init; } = "Available";
 }

@@ -29,10 +29,11 @@ public sealed class AdminUserService : IAdminUserService
     }
 
     public async Task<IReadOnlyList<PendingAccountResponse>> GetPendingApplicationsAsync(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? accountType = null)
     {
         var users = await _users.GetPendingApplicantsAsync(cancellationToken);
-        return users.Select(user => new PendingAccountResponse(
+        var applications = users.Select(user => new PendingAccountResponse(
             user.Id,
             user.FullName,
             user.Email,
@@ -40,27 +41,50 @@ public sealed class AdminUserService : IAdminUserService
             user.VolunteerProfile?.Phone ?? user.DonorProfile?.Phone,
             user.VolunteerProfile?.Skills,
             user.DonorProfile?.Type,
-            new DateTimeOffset(DateTime.SpecifyKind(user.CreatedAt, DateTimeKind.Utc)))).ToList();
+            user.VolunteerProfile?.Availability,
+            new DateTimeOffset(DateTime.SpecifyKind(user.CreatedAt, DateTimeKind.Utc))));
+
+        return string.IsNullOrWhiteSpace(accountType)
+            ? applications.ToList()
+            : applications.Where(application =>
+                application.AccountType == accountType).ToList();
     }
 
     public Task<ApplicantDecisionResult> ApproveApplicationAsync(
         Guid userId,
-        CancellationToken cancellationToken) =>
-        DecideOnApplicationAsync(userId, AccountStatus.Active, cancellationToken);
+        CancellationToken cancellationToken,
+        string? expectedAccountType = null) =>
+        DecideOnApplicationAsync(
+            userId, AccountStatus.Active, cancellationToken, expectedAccountType);
 
     public Task<ApplicantDecisionResult> RejectApplicationAsync(
         Guid userId,
-        CancellationToken cancellationToken) =>
-        DecideOnApplicationAsync(userId, AccountStatus.Rejected, cancellationToken);
+        CancellationToken cancellationToken,
+        string? expectedAccountType = null) =>
+        DecideOnApplicationAsync(
+            userId, AccountStatus.Rejected, cancellationToken, expectedAccountType);
 
     private async Task<ApplicantDecisionResult> DecideOnApplicationAsync(
         Guid userId,
         AccountStatus decision,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? expectedAccountType)
     {
         var user = await _users.GetByIdAsync(userId, cancellationToken);
         if (user is null ||
             (user.Role.Name != RoleNames.Volunteer && user.Role.Name != RoleNames.Donor))
+        {
+            return ApplicantDecisionResult.NotFound;
+        }
+
+        if (expectedAccountType is not null &&
+            user.Role.Name != expectedAccountType)
+        {
+            return ApplicantDecisionResult.NotFound;
+        }
+
+        if (expectedAccountType is not null &&
+            user.Role.Name != expectedAccountType)
         {
             return ApplicantDecisionResult.NotFound;
         }
