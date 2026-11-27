@@ -44,6 +44,12 @@ public class DonorService : IDonorService
         return donor is null ? null : ToDto(donor);
     }
 
+    public async Task<DonorResponseDto?> GetByUserIdAsync(Guid userId)
+    {
+        var donor = await _repository.GetByUserIdAsync(userId);
+        return donor is null ? null : ToDto(donor);
+    }
+
     public async Task<DonorResponseDto?> UpdateAsync(Guid id, UpdateDonorDto dto)
     {
         var donor = await _repository.GetByIdAsync(id);
@@ -59,6 +65,26 @@ public class DonorService : IDonorService
         donor.Type = dto.Type;
         if (dto.IsActive.HasValue)
             donor.IsActive = dto.IsActive.Value;
+
+        await _repository.UpdateAsync(donor);
+        return ToDto(donor);
+    }
+
+    public async Task<DonorResponseDto?> UpdateMyProfileAsync(
+        Guid userId,
+        UpdateDonorProfileDto dto)
+    {
+        var donor = await _repository.GetByUserIdAsync(userId);
+        if (donor is null) return null;
+
+        if (await _repository.EmailExistsAsync(dto.Email.Trim(), donor.Id))
+            throw new InvalidOperationException(
+                "A donor with this email already exists.");
+
+        donor.FullName = dto.FullName.Trim();
+        donor.Email = dto.Email.Trim();
+        donor.Phone = dto.Phone?.Trim();
+        donor.Type = dto.Type;
 
         await _repository.UpdateAsync(donor);
         return ToDto(donor);

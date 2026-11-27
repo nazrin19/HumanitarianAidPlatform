@@ -6,6 +6,7 @@ public interface IDonorRepository
 {
     Task AddAsync(Donor donor);
     Task<Donor?> GetByIdAsync(Guid id);
+    Task<Donor?> GetByUserIdAsync(Guid userId);
     Task<List<Donor>> GetAllAsync();
     Task UpdateAsync(Donor donor);
     Task DeleteAsync(Donor donor);

@@ -23,6 +23,9 @@ public class VolunteerRepository : IVolunteerRepository
     public async Task<Volunteer?> GetByIdAsync(Guid id) =>
         await _db.Volunteers.FirstOrDefaultAsync(v => v.Id == id);
 
+    public async Task<Volunteer?> GetByUserIdAsync(Guid userId) =>
+        await _db.Volunteers.AsNoTracking().FirstOrDefaultAsync(v => v.UserId == userId);
+
     public async Task<List<Volunteer>> GetAllAsync() =>
         await _db.Volunteers.AsNoTracking().OrderBy(v => v.FullName).ToListAsync();
 

@@ -24,6 +24,9 @@ public class DonorRepository : IDonorRepository
     public async Task<Donor?> GetByIdAsync(Guid id) =>
         await _db.Donors.FirstOrDefaultAsync(d => d.Id == id);
 
+    public async Task<Donor?> GetByUserIdAsync(Guid userId) =>
+        await _db.Donors.AsNoTracking().FirstOrDefaultAsync(d => d.UserId == userId);
+
     public async Task<List<Donor>> GetAllAsync() =>
         await _db.Donors.AsNoTracking().OrderBy(d => d.FullName).ToListAsync();
 
