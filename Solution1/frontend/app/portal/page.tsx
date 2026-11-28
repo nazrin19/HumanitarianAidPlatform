@@ -211,27 +211,6 @@ export default function PortalPage() {
     }
   }
 
-  async function createShelter(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    setError("");
-    setNotice("");
-    try {
-      const created = await postJson("/api/shelters", {
-        name: String(form.get("name")),
-        capacity: Number(form.get("capacity")),
-        currentOccupancy: Number(form.get("occupancy")),
-        latitude: null,
-        longitude: null,
-      }) as Shelter;
-      setShelters((current) => [created, ...current]);
-      setNotice("Shelter created.");
-      event.currentTarget.reset();
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Unable to create shelter.");
-    }
-  }
-
   async function createResource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -345,16 +324,21 @@ export default function PortalPage() {
 
         {role === "ShelterAdmin" && (
           <div className="grid gap-6">
-            <section className="rounded-2xl bg-white p-6 shadow-sm">
-              <h2 className="text-xl font-semibold">Create shelter</h2>
-              <form className="mt-4 grid gap-3 md:grid-cols-3" onSubmit={createShelter}>
-                <input className="rounded-lg border border-slate-300 px-3 py-2" name="name" required placeholder="Shelter name" />
-                <input className="rounded-lg border border-slate-300 px-3 py-2" name="capacity" required type="number" min="1" placeholder="Capacity" />
-                <input className="rounded-lg border border-slate-300 px-3 py-2" name="occupancy" required type="number" min="0" placeholder="Current occupancy" />
-                <button className="w-fit rounded-lg bg-emerald-800 px-4 py-2 font-semibold text-white" type="submit">Create shelter</button>
-              </form>
+            <section
+              id="shelter-history"
+              className="rounded-2xl bg-white p-6 shadow-sm"
+            >
+              <h2 className="text-xl font-semibold">Shelter History</h2>
+              {shelters.length === 0 ? (
+                <p className="mt-3 text-slate-600">No shelters are available.</p>
+              ) : (
+                shelters.map((item) => (
+                  <p className="mt-3 text-sm" key={item.id}>
+                    {item.name}: {item.currentOccupancy}/{item.capacity}
+                  </p>
+                ))
+              )}
             </section>
-            <section className="rounded-2xl bg-white p-6 shadow-sm"><h2 className="text-xl font-semibold">Shelters</h2>{shelters.map((item) => <p className="mt-3 text-sm" key={item.id}>{item.name}: {item.currentOccupancy}/{item.capacity}</p>)}</section>
           </div>
         )}
 
