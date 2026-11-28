@@ -9,4 +9,5 @@ public sealed record PendingAccountResponse(
     string? Phone,
     string? Skills,
     string? DonorType,
+    string? Availability,
     DateTimeOffset CreatedAt);

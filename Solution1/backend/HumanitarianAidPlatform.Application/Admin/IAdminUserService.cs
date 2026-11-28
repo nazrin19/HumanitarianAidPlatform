@@ -3,15 +3,18 @@ namespace HumanitarianAidPlatform.Application.Admin;
 public interface IAdminUserService
 {
     Task<IReadOnlyList<PendingAccountResponse>> GetPendingApplicationsAsync(
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? accountType = null);
 
     Task<ApplicantDecisionResult> ApproveApplicationAsync(
         Guid userId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? expectedAccountType = null);
 
     Task<ApplicantDecisionResult> RejectApplicationAsync(
         Guid userId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? expectedAccountType = null);
 
     Task<AdminAccountResponse?> GetAccountAsync(
         Guid userId,

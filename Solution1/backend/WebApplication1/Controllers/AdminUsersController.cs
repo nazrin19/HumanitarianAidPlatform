@@ -21,7 +21,7 @@ public sealed class AdminUsersController : ControllerBase
     [ProducesResponseType(typeof(IReadOnlyList<PendingAccountResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<PendingAccountResponse>>> GetPendingApplications(
         CancellationToken cancellationToken) =>
-        Ok(await _service.GetPendingApplicationsAsync(cancellationToken));
+        Ok(await _service.GetPendingApplicationsAsync(cancellationToken, null));
 
     [HttpPost("{userId:guid}/approve")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

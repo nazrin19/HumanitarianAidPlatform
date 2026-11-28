@@ -80,7 +80,7 @@ public class AuthService : IAuthService
             FullName = user.FullName,
             Phone = dto.Phone?.Trim(),
             Skills = dto.Skills?.Trim(),
-            Availability = "Inactive",
+            Availability = dto.Availability,
             CreatedAt = user.CreatedAt
         };
 
