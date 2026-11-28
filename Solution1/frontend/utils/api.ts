@@ -1,4 +1,4 @@
-export const API_TOKEN_STORAGE_KEY = "token";
+export const API_TOKEN_STORAGE_KEY = "authToken";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -76,10 +76,11 @@ export async function apiFetch<T = unknown>(
   path: string,
   options: ApiFetchOptions = {},
 ): Promise<T> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "");
-  if (!baseUrl) {
-    throw new Error("NEXT_PUBLIC_API_BASE_URL is not configured.");
-  }
+  const baseUrl = (
+    process.env.NEXT_PUBLIC_API_BASE_URL ??
+    process.env.NEXT_PUBLIC_API_URL ??
+    "http://localhost:5001"
+  ).replace(/\/+$/, "");
 
   const { body, headers: requestHeaders, ...requestOptions } = options;
   const headers = new Headers(requestHeaders);

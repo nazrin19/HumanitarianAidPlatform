@@ -11,12 +11,12 @@ const accountTypes = [
   {
     title: "Volunteer",
     description: "Apply to support relief efforts in your community.",
-    href: "/signup/volunteer",
+    href: "/apply/volunteer",
   },
   {
     title: "Donor",
     description: "Apply to contribute resources to relief efforts.",
-    href: "/signup/donor",
+    href: "/apply/donor",
   },
 ];
 
