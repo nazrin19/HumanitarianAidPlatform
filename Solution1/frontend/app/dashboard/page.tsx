@@ -18,7 +18,7 @@ import {
   clearSessionCredentials,
   useSessionRole,
 } from "../lib/auth-session";
-import { forwardGeocode } from "../lib/geocoding";
+import { forwardGeocode, reverseGeocode } from "../lib/geocoding";
 import styles from "./page.module.css";
 import mapStyles from "./LiveAidMap.module.css";
 import type {
@@ -27,8 +27,11 @@ import type {
   MapRequestPoint,
   MapShelterPoint,
   MapResourcePoint,
+  MapRouteOverlay,
+  MapServiceArea,
   MapSelection,
 } from "./LiveAidMap";
+import AlertModal from "./AlertModal";
 import type { GeocodingCandidate } from "../lib/geocoding";
 
 const LiveAidMap = dynamic(() => import("./LiveAidMap"), {
@@ -130,6 +133,23 @@ type ApiNotificationHistoryItem = {
   errorMessage: string | null;
 };
 
+type InboxNotification = {
+  id: string;
+  title: string;
+  message: string;
+  eventType: "ApplicationStatus" | "ShelterAssignment" | "EmergencyAnnouncement" | "General";
+  language: string;
+  createdAt: string;
+  isRead: boolean;
+};
+
+type ApiMapRoute = {
+  distanceKm: number;
+  routeGeoJson: string;
+  isFallback: boolean;
+  message: string;
+};
+
 type NotificationDeliveryResult = {
   succeeded: boolean;
   status: string;
@@ -211,6 +231,84 @@ function isNotificationDeliveryResult(
   );
 }
 
+async function handleMapPinDrop(latitude: number, longitude: number) {
+  if (
+    !Number.isFinite(latitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    !Number.isFinite(longitude) ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return;
+  }
+
+  geocodingController.current?.abort();
+  const controller = new AbortController();
+  geocodingController.current = controller;
+  setIsGeocoding(true);
+  setGeocodedLocation({
+    latitude,
+    longitude,
+    label: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+  });
+  setGeocodingFeedback({
+    kind: "status",
+    message: "Pin dropped. Looking up the address…",
+  });
+
+  try {
+    const accessToken = window.sessionStorage.getItem("authToken") ?? undefined;
+    if (!accessToken) {
+      clearSessionCredentials();
+      setIsRedirecting(true);
+      router.replace("/login");
+      return;
+    }
+
+    const outcome = await reverseGeocode(latitude, longitude, {
+      accessToken,
+      signal: controller.signal,
+    });
+    if (geocodingController.current !== controller) return;
+    if (outcome.kind === "unauthorized") {
+      clearSessionCredentials();
+      setIsRedirecting(true);
+      router.replace("/login");
+      return;
+    }
+    if (
+      outcome.kind === "found" &&
+      outcome.result &&
+      hasValidCoordinates(outcome.result)
+    ) {
+      const label =
+        outcome.result.displayAddress ??
+        `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+      setLocationQuery(label);
+      setGeocodedLocation({ latitude, longitude, label });
+      setGeocodingFeedback({
+        kind: "status",
+        message: `Pinned ${label} on the map.`,
+      });
+    } else {
+      setGeocodingFeedback({
+        kind: "error",
+        message:
+          outcome.message ??
+          (outcome.kind === "providerUnavailable"
+            ? "Address lookup is unavailable. The dropped pin remains on the map."
+            : "No address was found. The dropped pin remains on the map."),
+      });
+    }
+  } finally {
+    if (geocodingController.current === controller) {
+      geocodingController.current = null;
+      setIsGeocoding(false);
+    }
+  }
+}
+
 function isApiNotificationHistoryItem(
   value: unknown,
 ): value is ApiNotificationHistoryItem {
@@ -232,6 +330,44 @@ function isApiNotificationHistoryItem(
     typeof item.attemptCount === "number" &&
     (typeof item.errorCode === "string" || item.errorCode === null) &&
     (typeof item.errorMessage === "string" || item.errorMessage === null)
+  );
+}
+
+function isInboxNotification(value: unknown): value is InboxNotification {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.id === "string" &&
+    typeof item.title === "string" &&
+    typeof item.message === "string" &&
+    (item.eventType === "ApplicationStatus" ||
+      item.eventType === "ShelterAssignment" ||
+      item.eventType === "EmergencyAnnouncement" ||
+      item.eventType === "General") &&
+    typeof item.language === "string" &&
+    typeof item.createdAt === "string" &&
+    typeof item.isRead === "boolean"
+  );
+}
+
+function isApiMapRoute(value: unknown): value is ApiMapRoute {
+  if (!value || typeof value !== "object") return false;
+  const route = value as Record<string, unknown>;
+  return (
+    typeof route.distanceKm === "number" &&
+    typeof route.routeGeoJson === "string" &&
+    typeof route.isFallback === "boolean" &&
+    typeof route.message === "string"
+  );
+}
+
+function isMapServiceArea(value: unknown): value is MapServiceArea {
+  if (!value || typeof value !== "object") return false;
+  const area = value as Record<string, unknown>;
+  return (
+    typeof area.id === "string" &&
+    typeof area.name === "string" &&
+    typeof area.geoJson === "string"
   );
 }
 
@@ -469,6 +605,21 @@ export default function DashboardPage() {
   const [notificationHistoryError, setNotificationHistoryError] = useState("");
   const [notificationRefreshVersion, setNotificationRefreshVersion] =
     useState(0);
+  const [inboxNotifications, setInboxNotifications] = useState<
+    InboxNotification[]
+  >([]);
+  const [isLoadingInbox, setIsLoadingInbox] = useState(false);
+  const [notificationInboxError, setNotificationInboxError] = useState("");
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notificationTab, setNotificationTab] = useState<"All" | "Unread">(
+    "All",
+  );
+  const [activeAlert, setActiveAlert] = useState<InboxNotification | null>(null);
+  const [isMarkingAlertRead, setIsMarkingAlertRead] = useState(false);
+  const [serviceAreas, setServiceAreas] = useState<MapServiceArea[]>([]);
+  const [serviceAreaError, setServiceAreaError] = useState("");
+  const [mapRoute, setMapRoute] = useState<MapRouteOverlay | null>(null);
+  const [routeMessage, setRouteMessage] = useState("");
   const [isSendingTestNotification, setIsSendingTestNotification] =
     useState(false);
   const [mapInstance, setMapInstance] = useState<LeafletMapInstance | null>(
@@ -493,6 +644,8 @@ export default function DashboardPage() {
   const [isGeocoding, setIsGeocoding] = useState(false);
   const geocodingController = useRef<AbortController | null>(null);
   const mapCardRef = useRef<HTMLElement>(null);
+  const notificationPopoverRef = useRef<HTMLDivElement>(null);
+  const lastAlertId = useRef<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const normalizedQuery = query.trim().toLowerCase();
   const normalizedLocationQuery = locationQuery.trim();
@@ -754,6 +907,238 @@ export default function DashboardPage() {
   }, [accountRole, notificationRefreshVersion, router]);
 
   useEffect(() => {
+    if (accountRole === AUTH_SESSION_LOADING) return;
+
+    const controller = new AbortController();
+    let active = true;
+    const token = window.sessionStorage.getItem("authToken");
+    if (!token) {
+      router.replace("/login");
+      return () => {
+        active = false;
+        controller.abort();
+      };
+    }
+
+    async function loadInbox() {
+      setIsLoadingInbox(true);
+      setNotificationInboxError("");
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/notifications/inbox?limit=30`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          },
+        );
+        if (response.status === 401) {
+          clearSessionCredentials();
+          setIsRedirecting(true);
+          router.replace("/login");
+          return;
+        }
+        const body: unknown = await response.json().catch(() => undefined);
+        if (!response.ok) {
+          throw new Error(
+            getNotificationErrorMessage(
+              body,
+              `Unable to load your notifications (${response.status}).`,
+            ),
+          );
+        }
+        if (!Array.isArray(body) || !body.every(isInboxNotification)) {
+          throw new Error("The inbox response had an unexpected format.");
+        }
+        if (active) setInboxNotifications(body);
+      } catch (error) {
+        if (
+          active &&
+          !(error instanceof DOMException && error.name === "AbortError")
+        ) {
+          setNotificationInboxError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load your notifications.",
+          );
+        }
+      } finally {
+        if (active) setIsLoadingInbox(false);
+      }
+    }
+
+    void loadInbox();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [accountRole, notificationRefreshVersion, router]);
+
+  useEffect(() => {
+    if (accountRole === AUTH_SESSION_LOADING) return;
+
+    const controller = new AbortController();
+    let active = true;
+    const token = window.sessionStorage.getItem("authToken");
+    if (!token) return () => controller.abort();
+
+    async function loadServiceAreas() {
+      setServiceAreaError("");
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/mapping/service-areas`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          },
+        );
+        if (response.status === 401) {
+          clearSessionCredentials();
+          setIsRedirecting(true);
+          router.replace("/login");
+          return;
+        }
+        const body: unknown = await response.json().catch(() => undefined);
+        if (!response.ok) {
+          throw new Error(`Service areas are unavailable (${response.status}).`);
+        }
+        if (!Array.isArray(body) || !body.every(isMapServiceArea)) {
+          throw new Error("The service-area response had an unexpected format.");
+        }
+        if (active) setServiceAreas(body);
+      } catch (error) {
+        if (
+          active &&
+          !(error instanceof DOMException && error.name === "AbortError")
+        ) {
+          setServiceAreaError(
+            error instanceof Error
+              ? error.message
+              : "Service-area layers are unavailable.",
+          );
+        }
+      }
+    }
+
+    void loadServiceAreas();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [accountRole, router]);
+
+  useEffect(() => {
+    if (!userLocation || !geocodedLocation) {
+      setMapRoute(null);
+      setRouteMessage("");
+      return;
+    }
+
+    const controller = new AbortController();
+    let active = true;
+    const token = window.sessionStorage.getItem("authToken");
+    if (!token) {
+      setMapRoute(null);
+      setRouteMessage("Sign in to calculate a route estimate.");
+      return () => controller.abort();
+    }
+
+    async function loadRoute() {
+      setRouteMessage("Calculating straight-line distance…");
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/mapping/routes`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            origin: userLocation,
+            destination: {
+              latitude: geocodedLocation.latitude,
+              longitude: geocodedLocation.longitude,
+            },
+          }),
+          signal: controller.signal,
+        });
+        if (response.status === 401) {
+          clearSessionCredentials();
+          setIsRedirecting(true);
+          router.replace("/login");
+          return;
+        }
+        const body: unknown = await response.json().catch(() => undefined);
+        if (!response.ok || !isApiMapRoute(body)) {
+          throw new Error("Route estimate is temporarily unavailable.");
+        }
+        if (active) {
+          setMapRoute({
+            distanceKm: body.distanceKm,
+            routeGeoJson: body.routeGeoJson,
+            message: body.message,
+          });
+          setRouteMessage(
+            `${body.distanceKm.toFixed(1)} km · ${body.message}`,
+          );
+        }
+      } catch (error) {
+        if (
+          active &&
+          !(error instanceof DOMException && error.name === "AbortError")
+        ) {
+          setMapRoute(null);
+          setRouteMessage(
+            error instanceof Error
+              ? error.message
+              : "Route estimate is unavailable; the map remains usable.",
+          );
+        }
+      }
+    }
+
+    void loadRoute();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [geocodedLocation, router, userLocation]);
+
+  useEffect(() => {
+    const emergencyNotification = inboxNotifications.find(
+      (notification) =>
+        !notification.isRead &&
+        notification.eventType === "EmergencyAnnouncement",
+    );
+    if (
+      emergencyNotification &&
+      emergencyNotification.id !== lastAlertId.current
+    ) {
+      lastAlertId.current = emergencyNotification.id;
+      setActiveAlert(emergencyNotification);
+    }
+  }, [inboxNotifications]);
+
+  useEffect(() => {
+    if (!isNotificationsOpen) return;
+    function dismissPopover(event: MouseEvent) {
+      if (
+        notificationPopoverRef.current &&
+        !notificationPopoverRef.current.contains(event.target as Node)
+      ) {
+        setIsNotificationsOpen(false);
+      }
+    }
+    function dismissOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsNotificationsOpen(false);
+    }
+    document.addEventListener("mousedown", dismissPopover);
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", dismissPopover);
+      document.removeEventListener("keydown", dismissOnEscape);
+    };
+  }, [isNotificationsOpen]);
+
+  useEffect(() => {
     const controller = new AbortController();
     let active = true;
     const token = window.sessionStorage.getItem("authToken");
@@ -983,6 +1368,13 @@ export default function DashboardPage() {
   const failedNotificationCount = notificationRoles.has(accountRole)
     ? notificationLogs.filter((log) => !log.succeeded).length
     : 0;
+  const unreadNotificationCount = inboxNotifications.filter(
+    (notification) => !notification.isRead,
+  ).length;
+  const visibleInboxNotifications =
+    notificationTab === "Unread"
+      ? inboxNotifications.filter((notification) => !notification.isRead)
+      : inboxNotifications;
   const notificationHistorySummary = !notificationRoles.has(accountRole)
     ? "Notification history is restricted to authorized staff."
     : isLoadingNotificationHistory
@@ -992,29 +1384,6 @@ export default function DashboardPage() {
         : notificationLogs.length === 0
           ? "No recent notification attempts."
           : `${notificationLogs.length} recent notification attempts; ${failedNotificationCount} failed.`;
-  const notificationBadgeText = !notificationRoles.has(accountRole)
-    ? "i"
-    : isLoadingNotificationHistory
-      ? "…"
-      : notificationHistoryError
-        ? "!"
-        : failedNotificationCount > 0
-          ? String(failedNotificationCount)
-          : notificationLogs.length === 0
-            ? "0"
-            : "✓";
-  const notificationBadgeClass = `${styles.bellBadge} ${
-    !notificationRoles.has(accountRole)
-      ? styles.bellBadgeInfo
-      : notificationHistoryError
-      ? styles.bellBadgeError
-      : isLoadingNotificationHistory
-        ? styles.bellBadgeLoading
-        : failedNotificationCount > 0
-          ? styles.bellBadgeFailed
-          : styles.bellBadgeClear
-  }`;
-
   function signOut() {
     clearSessionCredentials();
     router.replace("/login");
@@ -1028,9 +1397,106 @@ export default function DashboardPage() {
   }
 
   function openNotificationHistory() {
+    setIsNotificationsOpen(false);
     document
       .getElementById("notification-history")
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function markNotificationRead(notificationId: string): Promise<boolean> {
+    const token = window.sessionStorage.getItem("authToken");
+    if (!token) {
+      router.replace("/login");
+      return false;
+    }
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/notifications/inbox/${notificationId}/read`,
+        {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (response.status === 401) {
+        clearSessionCredentials();
+        setIsRedirecting(true);
+        router.replace("/login");
+        return false;
+      }
+      if (!response.ok && response.status !== 404) {
+        throw new Error(`Unable to update notification (${response.status}).`);
+      }
+      setInboxNotifications((items) =>
+        items.map((item) =>
+          item.id === notificationId ? { ...item, isRead: true } : item,
+        ),
+      );
+      setNotificationInboxError("");
+      return true;
+    } catch (error) {
+      setNotificationInboxError(
+        error instanceof Error
+          ? error.message
+          : "Unable to update the notification.",
+      );
+      return false;
+    }
+  }
+
+  async function markAllNotificationsRead() {
+    const token = window.sessionStorage.getItem("authToken");
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/notifications/inbox/read-all`,
+        {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (response.status === 401) {
+        clearSessionCredentials();
+        setIsRedirecting(true);
+        router.replace("/login");
+        return;
+      }
+      const body: unknown = await response.json().catch(() => undefined);
+      if (!response.ok) {
+        throw new Error(
+          getNotificationErrorMessage(
+            body,
+            `Unable to mark notifications as read (${response.status}).`,
+          ),
+        );
+      }
+      setInboxNotifications((items) =>
+        items.map((item) => ({ ...item, isRead: true })),
+      );
+      setNotificationInboxError("");
+    } catch (error) {
+      setNotificationInboxError(
+        error instanceof Error
+          ? error.message
+          : "Unable to mark notifications as read.",
+      );
+    }
+  }
+
+  async function confirmEmergencyAlert() {
+    if (!activeAlert) return;
+    setIsMarkingAlertRead(true);
+    try {
+      if (await markNotificationRead(activeAlert.id)) {
+        setActiveAlert(null);
+      }
+    } finally {
+      setIsMarkingAlertRead(false);
+    }
   }
 
   async function sendTestNotification(event: FormEvent<HTMLFormElement>) {
@@ -1350,6 +1816,16 @@ export default function DashboardPage() {
               : "Unable to search for this location.",
         });
       }
+    } catch (error) {
+      if (geocodingController.current === controller) {
+        setGeocodingFeedback({
+          kind: "error",
+          message:
+            error instanceof Error
+              ? `Address lookup failed. The dropped pin remains on the map. ${error.message}`
+              : "Address lookup failed. The dropped pin remains on the map.",
+        });
+      }
     } finally {
       if (geocodingController.current === controller) {
         geocodingController.current = null;
@@ -1446,6 +1922,7 @@ export default function DashboardPage() {
     accountRole !== "Citizen" && layers.req ? requestLoadError : "",
     layers.sh ? shelterLoadError : "",
     accountRole === "Citizen" && layers.res ? resourceLoadError : "",
+    serviceAreaError,
   ].filter(Boolean).join(" ");
   const countText = [
     accountRole !== "Citizen" && layers.req
@@ -1504,20 +1981,125 @@ export default function DashboardPage() {
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
-          <button
-            className={styles.bell}
-            type="button"
-            aria-label={notificationHistorySummary}
-            aria-controls="notification-history"
-            onClick={openNotificationHistory}
+          <div
+            ref={notificationPopoverRef}
+            className={styles.notificationControl}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 21h4" />
-            </svg>
-            <span className={notificationBadgeClass} aria-hidden="true">
-              {notificationBadgeText}
-            </span>
-          </button>
+            <button
+              className={styles.bell}
+              type="button"
+              aria-label={`Notifications, ${unreadNotificationCount} unread`}
+              aria-expanded={isNotificationsOpen}
+              aria-controls="notification-popover"
+              onClick={() => setIsNotificationsOpen((open) => !open)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 21h4" />
+              </svg>
+              {unreadNotificationCount > 0 && (
+                <span className={styles.bellBadge} aria-hidden="true">
+                  {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
+                </span>
+              )}
+            </button>
+            {isNotificationsOpen && (
+              <section
+                className={styles.notificationPopover}
+                id="notification-popover"
+                aria-label="Notifications"
+              >
+                <div className={styles.popoverHeading}>
+                  <h2>Notifications</h2>
+                  <button
+                    className={styles.textButton}
+                    type="button"
+                    onClick={() => void markAllNotificationsRead()}
+                    disabled={unreadNotificationCount === 0}
+                  >
+                    Mark all as read
+                  </button>
+                </div>
+                <div className={styles.notificationTabs} role="tablist">
+                  {(["All", "Unread"] as const).map((tab) => (
+                    <button
+                      className={
+                        notificationTab === tab
+                          ? styles.notificationTabActive
+                          : styles.notificationTab
+                      }
+                      id={`notification-tab-${tab.toLowerCase()}`}
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      aria-selected={notificationTab === tab}
+                      onClick={() => setNotificationTab(tab)}
+                    >
+                      {tab}
+                      {tab === "Unread" && unreadNotificationCount > 0
+                        ? ` (${unreadNotificationCount})`
+                        : ""}
+                    </button>
+                  ))}
+                </div>
+                <div className={styles.inboxList} role="tabpanel">
+                  {isLoadingInbox ? (
+                    <p className={styles.note} role="status">
+                      Loading notifications…
+                    </p>
+                  ) : notificationInboxError ? (
+                    <p className={styles.notificationHistoryError} role="alert">
+                      {notificationInboxError}
+                    </p>
+                  ) : visibleInboxNotifications.length === 0 ? (
+                    <p className={styles.note}>
+                      {notificationTab === "Unread"
+                        ? "You are all caught up."
+                        : "No notifications yet."}
+                    </p>
+                  ) : (
+                    visibleInboxNotifications.map((notification) => (
+                      <button
+                        className={`${styles.inboxItem} ${
+                          notification.isRead ? "" : styles.inboxItemUnread
+                        }`}
+                        type="button"
+                        key={notification.id}
+                        onClick={() => {
+                          if (!notification.isRead) {
+                            void markNotificationRead(notification.id);
+                          }
+                        }}
+                      >
+                        <span className={styles.inboxItemHeading}>
+                          <strong>{notification.title}</strong>
+                          {!notification.isRead && (
+                            <span
+                              className={styles.unreadDot}
+                              aria-label="Unread"
+                            />
+                          )}
+                        </span>
+                        <span className={styles.inboxMessage}>
+                          {notification.message}
+                        </span>
+                        <time dateTime={notification.createdAt}>
+                          {new Date(notification.createdAt).toLocaleString()}
+                        </time>
+                      </button>
+                    ))
+                  )}
+                </div>
+                <div className={styles.popoverFooter}>
+                  {notificationRoles.has(accountRole) && (
+                    <p className={styles.note}>{notificationHistorySummary}</p>
+                  )}
+                  <a href="#notification-history" onClick={openNotificationHistory}>
+                    View notification delivery history
+                  </a>
+                </div>
+              </section>
+            )}
+          </div>
           <div className={styles.avatar} aria-label={`${accountRole} account`}>
             {accountRole.slice(0, 2).toUpperCase()}
           </div>
@@ -1737,6 +2319,11 @@ export default function DashboardPage() {
                   {geocodingFeedback.message}
                 </p>
               )}
+              {routeMessage && (
+                <p className={mapStyles.lookupMessage} role="status">
+                  {routeMessage}
+                </p>
+              )}
               {geocodingCandidates.length > 0 && (
                 <ul
                   className={mapStyles.candidateList}
@@ -1767,6 +2354,9 @@ export default function DashboardPage() {
                 onMapReady={setMapInstance}
                 userLocation={userLocation}
                 geocodedLocation={geocodedLocation}
+                serviceAreas={serviceAreas}
+                route={mapRoute}
+                onPinDrop={handleMapPinDrop}
                 isLoading={mapLoading}
                 error={mapError || null}
                 emptyMessage={

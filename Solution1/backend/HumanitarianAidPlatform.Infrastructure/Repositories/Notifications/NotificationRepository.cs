@@ -39,6 +39,80 @@ public sealed class NotificationRepository : INotificationRepository
         }
     }
 
+    public async Task<IReadOnlyList<Notification>> GetInboxAsync(
+        string recipient,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var normalizedRecipient = recipient.Trim().ToLowerInvariant();
+            return await _db.Notifications
+                .AsNoTracking()
+                .Where(notification =>
+                    notification.Recipient.ToLower() == normalizedRecipient)
+                .OrderByDescending(notification => notification.CreatedAt)
+                .Take(Math.Clamp(limit, 1, 100))
+                .ToListAsync(cancellationToken);
+        }
+        catch (Exception exception) when (
+            exception is DbException or DbUpdateException)
+        {
+            throw CreatePersistenceException("ReadInbox", exception);
+        }
+    }
+
+    public async Task<int> MarkAllAsReadAsync(
+        string recipient,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var normalizedRecipient = recipient.Trim().ToLowerInvariant();
+            return await _db.Notifications
+                .Where(notification =>
+                    notification.Recipient.ToLower() == normalizedRecipient &&
+                    !notification.IsRead)
+                .ExecuteUpdateAsync(
+                    updates => updates.SetProperty(
+                        notification => notification.IsRead,
+                        true),
+                    cancellationToken);
+        }
+        catch (Exception exception) when (
+            exception is DbException or DbUpdateException)
+        {
+            throw CreatePersistenceException("MarkInboxRead", exception);
+        }
+    }
+
+    public async Task<bool> MarkAsReadAsync(
+        Guid notificationId,
+        string recipient,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var normalizedRecipient = recipient.Trim().ToLowerInvariant();
+            var updated = await _db.Notifications
+                .Where(notification =>
+                    notification.Id == notificationId &&
+                    notification.Recipient.ToLower() == normalizedRecipient &&
+                    !notification.IsRead)
+                .ExecuteUpdateAsync(
+                    updates => updates.SetProperty(
+                        notification => notification.IsRead,
+                        true),
+                    cancellationToken);
+            return updated > 0;
+        }
+        catch (Exception exception) when (
+            exception is DbException or DbUpdateException)
+        {
+            throw CreatePersistenceException("MarkInboxItemRead", exception);
+        }
+    }
+
     public async Task AddAsync(
         Notification notification,
         CancellationToken cancellationToken)

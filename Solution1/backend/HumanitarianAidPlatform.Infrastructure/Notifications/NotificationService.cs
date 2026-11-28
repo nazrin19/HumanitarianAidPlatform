@@ -85,8 +85,91 @@ public sealed class NotificationService : INotificationService
                 notification.CorrelationId,
                 notification.AttemptCount,
                 notification.ErrorCode,
-                notification.ErrorMessage))
+                notification.ErrorMessage,
+                notification.Title,
+                notification.Message,
+                notification.EventType,
+                notification.Language,
+                notification.IsRead))
             .ToArray();
+    }
+
+    public async Task<IReadOnlyList<InAppNotificationItem>> GetInboxAsync(
+        string recipient,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(recipient))
+        {
+            throw new ArgumentException("Recipient is required.", nameof(recipient));
+        }
+
+        if (_notificationRepository is null)
+        {
+            throw new NotificationPersistenceException(
+                "ReadInbox",
+                "The notification inbox is unavailable because no repository is configured.");
+        }
+
+        var notifications = await _notificationRepository.GetInboxAsync(
+            recipient,
+            Math.Clamp(limit, 1, 100),
+            cancellationToken);
+
+        return notifications
+            .Select(notification => new InAppNotificationItem(
+                notification.Id,
+                notification.Title,
+                notification.Message,
+                notification.EventType,
+                notification.Language,
+                ToUtcOffset(notification.CreatedAt),
+                notification.IsRead))
+            .ToArray();
+    }
+
+    public async Task<int> MarkAllAsReadAsync(
+        string recipient,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(recipient))
+        {
+            throw new ArgumentException("Recipient is required.", nameof(recipient));
+        }
+
+        if (_notificationRepository is null)
+        {
+            throw new NotificationPersistenceException(
+                "MarkInboxRead",
+                "The notification inbox is unavailable because no repository is configured.");
+        }
+
+        return await _notificationRepository.MarkAllAsReadAsync(
+            recipient,
+            cancellationToken);
+    }
+
+    public async Task<bool> MarkAsReadAsync(
+        Guid notificationId,
+        string recipient,
+        CancellationToken cancellationToken)
+    {
+        if (notificationId == Guid.Empty || string.IsNullOrWhiteSpace(recipient))
+        {
+            throw new ArgumentException("A notification ID and recipient are required.");
+        }
+
+        if (_notificationRepository is null)
+        {
+            throw new NotificationPersistenceException(
+                "MarkInboxItemRead",
+                "The notification inbox is unavailable because no repository is configured.");
+        }
+
+        return await _notificationRepository.MarkAsReadAsync(
+            notificationId,
+            recipient,
+            cancellationToken);
     }
 
     public async Task<NotificationDeliveryResult> SendAsync(
@@ -151,12 +234,24 @@ public sealed class NotificationService : INotificationService
         var attemptedAt = DateTimeOffset.UtcNow;
         var correlationId = Guid.NewGuid();
         var recipientMask = RecipientMasking.Mask(request.Recipient);
+        var language = NotificationMessageBuilder.NormalizeLanguage(request.Language);
+        var generatedContent = request.EventType switch
+        {
+            NotificationEventType.EmergencyAnnouncement =>
+                NotificationMessageBuilder.Emergency(request.Message ?? request.Body, language),
+            _ => NotificationMessageBuilder.General(language)
+        };
+        var title = FirstNonBlank(request.Title, request.Subject, generatedContent.Title);
+        var message = FirstNonBlank(request.Message, request.Body, generatedContent.Message);
         var notification = new Notification
         {
             Recipient = request.Recipient,
-            Subject = request.Subject ?? string.Empty,
-            Message = request.Message,
+            Title = title,
+            Subject = title,
+            Message = message,
             Channel = request.Channel,
+            EventType = request.EventType,
+            Language = language,
             EventId = request.EventId,
             CorrelationId = correlationId,
             AttemptCount = 1,
@@ -207,13 +302,13 @@ public sealed class NotificationService : INotificationService
             {
                 NotificationChannel.Email => await _emailSender.SendAsync(
                     request.Recipient,
-                    request.Subject,
-                    request.Message,
+                    title,
+                    message,
                     correlationId,
                     cancellationToken),
                 NotificationChannel.Sms => await _smsSender.SendAsync(
                     request.Recipient,
-                    request.Message,
+                    message,
                     correlationId,
                     cancellationToken),
                 NotificationChannel.InApp => CreateInAppSimulationResult(
@@ -438,9 +533,11 @@ public sealed class NotificationService : INotificationService
             return Task.FromResult(InvalidInputResult(request.Channel, validationError));
         }
 
-        var note = string.IsNullOrWhiteSpace(request.Note)
-            ? string.Empty
-            : $" Note: {request.Note}";
+        var template = NotificationMessageBuilder.ApplicationStatus(
+            request.AssistanceRequestId,
+            request.Status,
+            request.Note,
+            request.Language);
 
         return SendAsync(
             new NotificationRequest
@@ -448,8 +545,11 @@ public sealed class NotificationService : INotificationService
                 Recipient = request.Recipient,
                 Channel = request.Channel,
                 EventId = request.EventId,
-                Subject = $"Assistance request status: {request.Status}",
-                Message = $"Assistance request {request.AssistanceRequestId} is now {request.Status}.{note}"
+                Subject = FirstNonBlank(request.Title, template.Title),
+                Title = FirstNonBlank(request.Title, template.Title),
+                Message = FirstNonBlank(request.Message, template.Message),
+                EventType = request.EventType,
+                Language = request.Language
             },
             cancellationToken);
     }
@@ -471,12 +571,12 @@ public sealed class NotificationService : INotificationService
             return Task.FromResult(InvalidInputResult(request.Channel, validationError));
         }
 
-        var resource = string.IsNullOrWhiteSpace(request.ResourceName)
-            ? "resource"
-            : request.ResourceName;
-        var assignment = string.IsNullOrWhiteSpace(request.AssignmentName)
-            ? "an assigned team"
-            : request.AssignmentName;
+        var template = NotificationMessageBuilder.Allocation(
+            request.AssistanceRequestId,
+            request.Quantity,
+            request.ResourceName,
+            request.AssignmentName,
+            request.Language);
 
         return SendAsync(
             new NotificationRequest
@@ -484,13 +584,18 @@ public sealed class NotificationService : INotificationService
                 Recipient = request.Recipient,
                 Channel = request.Channel,
                 EventId = request.EventId,
-                Subject = "Resource allocation and assignment update",
-                Message = $"Allocation {request.AllocationId} for assistance request " +
-                          $"{request.AssistanceRequestId} allocated {request.Quantity} {resource} " +
-                          $"to {assignment}."
+                Subject = FirstNonBlank(request.Title, template.Title),
+                Title = FirstNonBlank(request.Title, template.Title),
+                Message = FirstNonBlank(request.Message, template.Message),
+                EventType = request.EventType,
+                Language = request.Language
             },
             cancellationToken);
     }
+
+    private static string FirstNonBlank(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim()
+        ?? string.Empty;
 
     private static string? GetValidationError(object request)
     {

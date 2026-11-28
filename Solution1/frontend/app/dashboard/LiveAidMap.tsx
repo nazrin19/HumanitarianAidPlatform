@@ -44,6 +44,18 @@ export type MapGeocodedPoint = {
   label: string;
 };
 
+export type MapServiceArea = {
+  id: string;
+  name: string;
+  geoJson: string;
+};
+
+export type MapRouteOverlay = {
+  distanceKm: number;
+  routeGeoJson: string;
+  message: string;
+};
+
 export type MapMarkerType = "request" | "shelter" | "resource";
 export type MapSelection =
   | { type: MapMarkerType; id: string }
@@ -59,6 +71,9 @@ export type LiveAidMapProps = {
   onMapReady: (map: LeafletMapInstance | null) => void;
   userLocation?: MapUserLocation | null;
   geocodedLocation?: MapGeocodedPoint | null;
+  serviceAreas?: MapServiceArea[];
+  route?: MapRouteOverlay | null;
+  onPinDrop?: (latitude: number, longitude: number) => void;
   isLoading?: boolean;
   error?: string | null;
   emptyMessage?: string;
@@ -82,6 +97,9 @@ export default function LiveAidMap({
   onMapReady,
   userLocation = null,
   geocodedLocation = null,
+  serviceAreas = [],
+  route = null,
+  onPinDrop,
   isLoading = false,
   error = null,
   emptyMessage = "No mapped locations are available.",
@@ -89,7 +107,11 @@ export default function LiveAidMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LeafletMapInstance | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
+  const onPinDropRef = useRef(onPinDrop);
   const [failedTileCount, setFailedTileCount] = useState(0);
+  const [overlayError, setOverlayError] = useState("");
+
+  onPinDropRef.current = onPinDrop;
 
   const aidPoints = useMemo(
     () =>
@@ -136,6 +158,9 @@ export default function LiveAidMap({
     });
     mapRef.current = map;
     markerLayerRef.current = L.layerGroup().addTo(map);
+    map.on("click", (event) => {
+      onPinDropRef.current?.(event.latlng.lat, event.latlng.lng);
+    });
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "&copy; OpenStreetMap contributors",
@@ -163,6 +188,34 @@ export default function LiveAidMap({
     if (!map || !markerLayer) return;
 
     markerLayer.clearLayers();
+    setOverlayError("");
+
+    try {
+      serviceAreas.forEach((area) => {
+        const geoJson = JSON.parse(area.geoJson) as GeoJSON.GeoJsonObject;
+        L.geoJSON(geoJson, {
+          style: {
+            color: "#1b6b47",
+            weight: 2,
+            fillColor: "#4ca77d",
+            fillOpacity: 0.16,
+          },
+        })
+          .bindTooltip(area.name)
+          .addTo(markerLayer);
+      });
+
+      if (route) {
+        const routeGeoJson = JSON.parse(
+          route.routeGeoJson,
+        ) as GeoJSON.GeoJsonObject;
+        L.geoJSON(routeGeoJson, {
+          style: { color: "#246bce", weight: 4, dashArray: "8 6" },
+        }).addTo(markerLayer);
+      }
+    } catch {
+      setOverlayError("A map layer could not be displayed.");
+    }
 
     if (userLocation) {
       L.circleMarker([userLocation.latitude, userLocation.longitude], {
@@ -264,9 +317,11 @@ export default function LiveAidMap({
     mode,
     onSelect,
     points,
+    route,
     requests,
     resources,
     selection,
+    serviceAreas,
     shelters,
     userLocation,
   ]);
@@ -275,6 +330,7 @@ export default function LiveAidMap({
   const notice = tileError
     ? "Map tiles could not be loaded. Check your connection and try again."
     : error ||
+    overlayError ||
       (isLoading
         ? "Loading map locations…"
         : aidPoints.length === 0
@@ -290,7 +346,7 @@ export default function LiveAidMap({
       {notice && (
         <div
           className={`${styles.mapNotice}${tileError || error ? ` ${styles.mapNoticeError}` : ""}`}
-          role={tileError || error ? "alert" : "status"}
+          role={tileError || error || overlayError ? "alert" : "status"}
         >
           {notice}
         </div>

@@ -6,10 +6,21 @@ public class Notification
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Recipient { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
     public string Subject { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
 
+    [NotMapped]
+    public string Body
+    {
+        get => Message;
+        set => Message = value;
+    }
+
     public NotificationChannel Channel { get; set; } = NotificationChannel.Unknown;
+    public NotificationEventType EventType { get; set; } = NotificationEventType.General;
+    public string Language { get; set; } = "en";
+    public bool IsRead { get; set; }
 
     [Obsolete("Use Channel. This compatibility property maps to the legacy data-column name.")]
     [NotMapped]

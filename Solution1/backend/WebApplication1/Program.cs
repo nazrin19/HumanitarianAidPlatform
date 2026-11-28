@@ -12,6 +12,7 @@ using HumanitarianAidPlatform.Application.Volunteers;
 using HumanitarianAidPlatform.Infrastructure.Ai;
 using HumanitarianAidPlatform.Infrastructure.External;
 using HumanitarianAidPlatform.Infrastructure.Notifications;
+using HumanitarianAidPlatform.Infrastructure.Mapping;
 using HumanitarianAidPlatform.Infrastructure.Persistence;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Donors;
 using HumanitarianAidPlatform.Infrastructure.Repositories.Notifications;
@@ -56,6 +57,7 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters
             .Add(new JsonStringEnumConverter());
     });
+builder.Services.AddMemoryCache();
 
 // OpenAPI and JWT security documentation
 builder.Services.AddOpenApi(options =>
@@ -196,9 +198,13 @@ builder.Services.AddHttpClient<IGeocodingService, MappingClient>(
 // Notification services
 builder.Services.AddSingleton<NotificationDeliveryDeduplicator>();
 builder.Services.AddScoped<IEmailSender, EmailSender>();
-builder.Services.AddScoped<ISmsSender, SmsSender>();
+builder.Services.AddHttpClient<ISmsSender, SmsSender>(client =>
+{
+    client.Timeout = Timeout.InfiniteTimeSpan;
+});
 builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IMappingService, MappingService>();
 
 var app = builder.Build();
 

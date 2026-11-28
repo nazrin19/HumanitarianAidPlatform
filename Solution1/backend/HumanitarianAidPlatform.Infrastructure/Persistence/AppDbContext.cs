@@ -2,6 +2,7 @@ using System;
 using HumanitarianAidPlatform.Domain.Entities.Requests;
 using HumanitarianAidPlatform.Domain.Entities.Shelters;
 using HumanitarianAidPlatform.Domain.Entities.Notifications;
+using HumanitarianAidPlatform.Domain.Entities.Mapping;
 using HumanitarianAidPlatform.Domain.Entities.Resources;
 using HumanitarianAidPlatform.Domain.Entities.Users;
 using HumanitarianAidPlatform.Domain.Entities.Donors;
@@ -40,6 +41,15 @@ public class AppDbContext : DbContext
 
     public DbSet<Notification> Notifications =>
         Set<Notification>();
+
+    public DbSet<MapReference> MapReferences =>
+        Set<MapReference>();
+
+    public DbSet<ServiceArea> ServiceAreas =>
+        Set<ServiceArea>();
+
+    public DbSet<CachedRoute> CachedRoutes =>
+        Set<CachedRoute>();
 
     public DbSet<User> Users =>
         Set<User>();
@@ -182,8 +192,47 @@ public class AppDbContext : DbContext
                 .HasDefaultValue("Unknown")
                 .IsRequired();
 
+            n.Property(x => x.Title)
+                .HasMaxLength(200)
+                .HasDefaultValue(string.Empty)
+                .IsRequired();
+
+            n.Property(x => x.EventType)
+                .HasConversion<string>()
+                .HasMaxLength(40)
+                .HasDefaultValue(NotificationEventType.General)
+                .IsRequired();
+
+            n.Property(x => x.Language)
+                .HasMaxLength(2)
+                .HasDefaultValue("en")
+                .IsRequired();
+
             n.Property(x => x.ErrorCode)
                 .HasMaxLength(100);
+
+            n.HasIndex(x => new { x.Recipient, x.IsRead, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<MapReference>(reference =>
+        {
+            reference.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            reference.Property(x => x.Address).HasMaxLength(300);
+            reference.HasIndex(x => x.Name);
+        });
+
+        modelBuilder.Entity<ServiceArea>(area =>
+        {
+            area.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            area.Property(x => x.GeoJson).HasColumnType("nvarchar(max)").IsRequired();
+            area.HasIndex(x => new { x.IsActive, x.Name });
+        });
+
+        modelBuilder.Entity<CachedRoute>(route =>
+        {
+            route.Property(x => x.CacheKey).HasMaxLength(128).IsRequired();
+            route.Property(x => x.RouteGeoJson).HasColumnType("nvarchar(max)").IsRequired();
+            route.HasIndex(x => x.CacheKey);
         });
 
         // User configuration

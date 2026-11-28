@@ -19,19 +19,28 @@ public sealed record NotificationRequest : IValidatableObject
     [MaxLength(200)]
     public string? Subject { get; init; }
 
-    [Required]
+    [MaxLength(200)]
+    public string? Title { get; init; }
+
     [RegularExpression(@".*\S.*", ErrorMessage = "Message must not be blank.")]
     [MaxLength(4000)]
-    public required string Message { get; init; }
+    public string? Message { get; init; }
+
+    [MaxLength(4000)]
+    public string? Body { get; init; }
 
     public NotificationChannel Channel { get; init; } = NotificationChannel.Email;
+    public NotificationEventType EventType { get; init; } = NotificationEventType.General;
+    public string Language { get; init; } = "en";
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         return NotificationRequestValidation.ValidateCommon(
             EventId,
             Channel,
-            Recipient);
+            Recipient,
+            EventType,
+            Language);
     }
 }
 
@@ -46,6 +55,17 @@ public sealed record AssistanceRequestStatusNotificationRequest : IValidatableOb
 
     public NotificationChannel Channel { get; init; } = NotificationChannel.Email;
 
+    [MaxLength(200)]
+    public string? Title { get; init; }
+
+    [MaxLength(4000)]
+    public string? Message { get; init; }
+
+    public NotificationEventType EventType { get; init; } =
+        NotificationEventType.ApplicationStatus;
+
+    public string Language { get; init; } = "en";
+
     [Required]
     public Guid AssistanceRequestId { get; init; }
 
@@ -59,7 +79,9 @@ public sealed record AssistanceRequestStatusNotificationRequest : IValidatableOb
         foreach (var validationResult in NotificationRequestValidation.ValidateCommon(
                      EventId,
                      Channel,
-                     Recipient))
+                     Recipient,
+                     EventType,
+                     Language))
         {
             yield return validationResult;
         }
@@ -91,6 +113,17 @@ public sealed record AllocationAssignmentNotificationRequest : IValidatableObjec
 
     public NotificationChannel Channel { get; init; } = NotificationChannel.Email;
 
+    [MaxLength(200)]
+    public string? Title { get; init; }
+
+    [MaxLength(4000)]
+    public string? Message { get; init; }
+
+    public NotificationEventType EventType { get; init; } =
+        NotificationEventType.ShelterAssignment;
+
+    public string Language { get; init; } = "en";
+
     [Required]
     public Guid AllocationId { get; init; }
 
@@ -111,7 +144,9 @@ public sealed record AllocationAssignmentNotificationRequest : IValidatableObjec
         foreach (var validationResult in NotificationRequestValidation.ValidateCommon(
                      EventId,
                      Channel,
-                     Recipient))
+                     Recipient,
+                     EventType,
+                     Language))
         {
             yield return validationResult;
         }
@@ -160,14 +195,31 @@ public sealed record NotificationHistoryItem(
     Guid? CorrelationId,
     int AttemptCount,
     string? ErrorCode,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    string? Title = null,
+    string? Message = null,
+    NotificationEventType EventType = NotificationEventType.General,
+    string Language = "en",
+    bool IsRead = false);
+
+/// <summary>Represents a notification visible to the authenticated recipient.</summary>
+public sealed record InAppNotificationItem(
+    Guid Id,
+    string Title,
+    string Message,
+    NotificationEventType EventType,
+    string Language,
+    DateTimeOffset CreatedAt,
+    bool IsRead);
 
 internal static class NotificationRequestValidation
 {
     public static IEnumerable<ValidationResult> ValidateCommon(
         Guid? eventId,
         NotificationChannel channel,
-        string? recipient)
+        string? recipient,
+        NotificationEventType eventType,
+        string? language)
     {
         if (eventId == Guid.Empty)
         {
@@ -182,6 +234,20 @@ internal static class NotificationRequestValidation
                 "The requested notification channel is invalid.",
                 ["Channel"]);
             yield break;
+        }
+
+        if (!Enum.IsDefined(eventType))
+        {
+            yield return new ValidationResult(
+                "The notification event type is invalid.",
+                ["EventType"]);
+        }
+
+        if (!NotificationMessageBuilder.IsSupportedLanguage(language))
+        {
+            yield return new ValidationResult(
+                "Language must be en, si, or ta.",
+                ["Language"]);
         }
 
         if (string.IsNullOrWhiteSpace(recipient))

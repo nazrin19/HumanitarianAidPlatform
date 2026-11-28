@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HumanitarianAidPlatform.Application.Geocoding;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -20,15 +21,30 @@ public sealed class MappingClient : IGeocodingService
     private readonly Uri _baseAddress;
     private readonly NominatimOptions _options;
     private readonly ILogger<MappingClient> _logger;
+    private readonly IMemoryCache _memoryCache;
 
     public MappingClient(
         HttpClient httpClient,
         IOptions<NominatimOptions> options,
         ILogger<MappingClient> logger)
+        : this(
+            httpClient,
+            options,
+            new MemoryCache(new MemoryCacheOptions()),
+            logger)
+    {
+    }
+
+    public MappingClient(
+        HttpClient httpClient,
+        IOptions<NominatimOptions> options,
+        IMemoryCache memoryCache,
+        ILogger<MappingClient> logger)
     {
         _httpClient = httpClient;
         _options = options.Value;
         _logger = logger;
+        _memoryCache = memoryCache;
 
         var baseUrl = _options.BaseUrl.EndsWith("/", StringComparison.Ordinal)
             ? _options.BaseUrl
@@ -54,7 +70,8 @@ public sealed class MappingClient : IGeocodingService
             _baseAddress,
             $"search?format=jsonv2&limit={Math.Clamp(_options.MaximumCandidates, 2, 10)}&q={Uri.EscapeDataString(query)}");
 
-        return ExecuteAsync(
+        return ExecuteCachedAsync(
+            $"forward:{query.ToLowerInvariant()}",
             "forward",
             cancellationToken,
             async requestToken =>
@@ -110,7 +127,11 @@ public sealed class MappingClient : IGeocodingService
             _baseAddress,
             $"reverse?format=jsonv2&lat={latitude.ToString(CultureInfo.InvariantCulture)}&lon={longitude.ToString(CultureInfo.InvariantCulture)}");
 
-        return ExecuteAsync(
+        var cacheKey = string.Create(
+            CultureInfo.InvariantCulture,
+            $"reverse:{latitude:F5}:{longitude:F5}");
+        return ExecuteCachedAsync(
+            cacheKey,
             "reverse",
             cancellationToken,
             async requestToken =>
@@ -142,6 +163,27 @@ public sealed class MappingClient : IGeocodingService
                 var candidate = ParseCandidate(place);
                 return MatchResult([candidate]);
             });
+    }
+
+    private async Task<GeocodingResult> ExecuteCachedAsync(
+        string cacheKey,
+        string operation,
+        CancellationToken cancellationToken,
+        Func<CancellationToken, Task<GeocodingResult>> action)
+    {
+        if (_memoryCache.TryGetValue(cacheKey, out GeocodingResult? cached) &&
+            cached is not null)
+        {
+            return cached;
+        }
+
+        var result = await ExecuteAsync(operation, cancellationToken, action);
+        if (result.Status is GeocodingStatus.Found or GeocodingStatus.Ambiguous or GeocodingStatus.NotFound)
+        {
+            _memoryCache.Set(cacheKey, result, TimeSpan.FromHours(6));
+        }
+
+        return result;
     }
 
     private async Task<GeocodingResult> ExecuteAsync(
