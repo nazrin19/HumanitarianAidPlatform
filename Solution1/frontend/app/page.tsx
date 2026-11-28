@@ -241,7 +241,7 @@ export default function Home() {
                 </p>
                 <Link
                   className={`${styles.button} ${styles.solid} ${styles.small}`}
-                  href="/signup/volunteer"
+                  href="/apply/volunteer"
                 >
                   Join Us
                 </Link>
@@ -258,7 +258,7 @@ export default function Home() {
                 <p>Apply for a donor account and support relief campaigns.</p>
                 <Link
                   className={`${styles.button} ${styles.solid} ${styles.small}`}
-                  href="/signup/donor"
+                  href="/apply/donor"
                 >
                   Join Us
                 </Link>

@@ -25,8 +25,8 @@ const ROLE_DESTINATIONS: Record<string, string> = {
   ShelterAdmin: "/dashboard",
   Volunteer: "/portal",
   Donor: "/portal",
-  VolunteerCoordinator: "/portal",
-  DonorOfficer: "/portal",
+  VolunteerCoordinator: "/dashboard/volunteers",
+  DonorOfficer: "/dashboard/donors",
   PartnerOfficer: "/portal",
   Admin: "/admin",
 };

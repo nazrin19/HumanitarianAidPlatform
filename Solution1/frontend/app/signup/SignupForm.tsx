@@ -248,7 +248,11 @@ export default function SignupForm({
           </p>
 
           <div className={styles.form}>
-            <h1>Create Account</h1>
+            <h1>
+              {accountType === "citizen"
+                ? "Create Account"
+                : `${accountType === "donor" ? "Donor" : "Volunteer"} application`}
+            </h1>
             <p className={styles.sub}>
               {accountType === "citizen"
                 ? "Create your Citizen account."
@@ -437,9 +441,16 @@ export default function SignupForm({
                 aria-live="polite"
               >
                 {isSuccess
-                  ? `Your ${accountType} application is pending administrator approval.`
+                  ? "Your application has been submitted successfully and is awaiting coordinator approval."
                   : error}
               </div>
+              {isSuccess && (
+                <p className={styles.sub}>
+                  <Link href="/">Return to home</Link>
+                  {" · "}
+                  <Link href="/login">Go to login</Link>
+                </p>
+              )}
               <button
                 className={styles.button}
                 type="submit"

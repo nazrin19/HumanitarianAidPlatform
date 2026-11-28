@@ -2,6 +2,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -449,6 +450,19 @@ export default function AdminPage() {
             <span>♙</span>
             Create Staff
           </a>
+
+          <Link
+            href="/dashboard/donors"
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            Donor management
+          </Link>
+          <Link
+            href="/dashboard/volunteers"
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            Volunteer management
+          </Link>
         </nav>
 
         <div className={styles.sidebarFooter}>
