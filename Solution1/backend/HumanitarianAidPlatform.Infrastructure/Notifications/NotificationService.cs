@@ -1,4 +1,7 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using HumanitarianAidPlatform.Application.Notifications;
 using HumanitarianAidPlatform.Domain.Entities.Notifications;
 using HumanitarianAidPlatform.Infrastructure.External;
@@ -191,7 +194,9 @@ public sealed class NotificationService : INotificationService
 
         if (request.EventId is not Guid eventId)
         {
-            return await SendCoreAsync(request, cancellationToken);
+            var contentHash = ComputeContentHash(request);
+            return await SendCoreWithDeduplicationAsync(
+                request, cancellationToken, contentHash, null);
         }
 
         try
@@ -227,6 +232,115 @@ public sealed class NotificationService : INotificationService
         }
     }
 
+    private async Task<NotificationDeliveryResult> SendCoreWithDeduplicationAsync(
+        NotificationRequest request,
+        CancellationToken cancellationToken,
+        string contentHash,
+        Guid? eventId)
+    {
+        if (string.IsNullOrWhiteSpace(contentHash))
+        {
+            return await SendCoreAsync(request, cancellationToken);
+        }
+
+        var normalizedRecipient = NormalizeRecipientForDedup(request.Recipient, request.Channel);
+        var dedupKey = $"{contentHash}:{(int)request.Channel}:{normalizedRecipient}";
+        var entry = new ContentDedupEntry();
+        var entries = _contentDedupEntries;
+
+        while (true)
+        {
+            if (entries.TryGetValue(dedupKey, out var existing))
+            {
+                if (!existing.IsExpired(DateTimeOffset.UtcNow))
+                {
+                    var previous = await existing.Completion.Task.WaitAsync(cancellationToken);
+                    return previous with { IsDuplicate = true };
+                }
+
+                if (entries.TryUpdate(dedupKey, entry, existing))
+                {
+                    break;
+                }
+                continue;
+            }
+
+            if (entries.TryAdd(dedupKey, entry))
+            {
+                break;
+            }
+        }
+
+        try
+        {
+            var result = await SendCoreAsync(request, cancellationToken);
+
+            if (result.Succeeded &&
+                result.Status is NotificationDeliveryStatus.Sent or NotificationDeliveryStatus.MockSent)
+            {
+                entry.MarkCompleted(DateTimeOffset.UtcNow);
+                entry.Completion.TrySetResult(result);
+            }
+            else
+            {
+                entries.TryRemove(dedupKey, out _);
+                entry.Completion.TrySetResult(result);
+            }
+
+            return result;
+        }
+        catch (Exception exception)
+        {
+            entry.Completion.TrySetException(exception);
+            entries.TryRemove(dedupKey, out _);
+            throw;
+        }
+    }
+
+    private static string NormalizeRecipientForDedup(string recipient, NotificationChannel channel)
+    {
+        var trimmed = recipient.Trim();
+        return channel switch
+        {
+            NotificationChannel.Email => trimmed.ToUpperInvariant(),
+            NotificationChannel.Sms => NormalizePhoneRecipient(trimmed),
+            _ => trimmed
+        };
+    }
+
+    private static string NormalizePhoneRecipient(string recipient)
+    {
+        var digits = new string(recipient.Where(char.IsDigit).ToArray());
+        return digits.Length > 0 ? digits : recipient.ToUpperInvariant();
+    }
+
+    private static string ComputeContentHash(NotificationRequest request)
+    {
+        var content = $"{request.Title ?? string.Empty}|{request.Subject ?? string.Empty}|{request.Message ?? string.Empty}|{request.Body ?? string.Empty}";
+        using var sha256 = SHA256.Create();
+        var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(content));
+        return Convert.ToHexString(hashBytes);
+    }
+
+    private sealed class ContentDedupEntry
+    {
+        private long _completedAtUtcTicks;
+        public TaskCompletionSource<NotificationDeliveryResult> Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool IsExpired(DateTimeOffset now)
+        {
+            var completedAtTicks = Interlocked.Read(ref _completedAtUtcTicks);
+            return completedAtTicks != 0 &&
+                now.UtcTicks - completedAtTicks >= TimeSpan.FromHours(24).Ticks;
+        }
+
+        public void MarkCompleted(DateTimeOffset completedAt) =>
+            Interlocked.Exchange(ref _completedAtUtcTicks, completedAt.UtcTicks);
+    }
+
+    private readonly ConcurrentDictionary<string, ContentDedupEntry> _contentDedupEntries = new();
+
     private async Task<NotificationDeliveryResult> SendCoreAsync(
         NotificationRequest request,
         CancellationToken cancellationToken)
@@ -239,6 +353,10 @@ public sealed class NotificationService : INotificationService
         {
             NotificationEventType.EmergencyAnnouncement =>
                 NotificationMessageBuilder.Emergency(request.Message ?? request.Body, language),
+            NotificationEventType.ShelterAssignment =>
+                NotificationMessageBuilder.ShelterAssignment(null, language),
+            NotificationEventType.ApplicationStatus =>
+                NotificationMessageBuilder.General(language),
             _ => NotificationMessageBuilder.General(language)
         };
         var title = FirstNonBlank(request.Title, request.Subject, generatedContent.Title);
@@ -259,7 +377,9 @@ public sealed class NotificationService : INotificationService
             DeliveryStatus = "Pending"
         };
 
-        if (_notificationRepository is not null)
+        var isInApp = request.Channel == NotificationChannel.InApp;
+
+        if (!isInApp && _notificationRepository is not null)
         {
             try
             {
@@ -280,6 +400,12 @@ public sealed class NotificationService : INotificationService
                     attemptedAt,
                     "The notification was not sent because its pending attempt could not be persisted.");
             }
+        }
+        else if (isInApp)
+        {
+            _logger.LogInformation(
+                "In-app notification will be persisted after content generation, correlation {CorrelationId}.",
+                correlationId);
         }
         else
         {
@@ -311,10 +437,11 @@ public sealed class NotificationService : INotificationService
                     message,
                     correlationId,
                     cancellationToken),
-                NotificationChannel.InApp => CreateInAppSimulationResult(
+                NotificationChannel.InApp => await SendInAppAsync(
+                    notification,
                     attemptedAt,
                     correlationId,
-                    recipientMask),
+                    cancellationToken),
                 _ => new NotificationDeliveryResult(
                     false,
                     NotificationDeliveryStatus.Failed,
@@ -436,27 +563,73 @@ public sealed class NotificationService : INotificationService
         return result;
     }
 
-    private NotificationDeliveryResult CreateInAppSimulationResult(
+    private async Task<NotificationDeliveryResult> SendInAppAsync(
+        Notification notification,
         DateTimeOffset attemptedAt,
         Guid correlationId,
-        string recipientMask)
+        CancellationToken cancellationToken)
     {
-        _logger.LogWarning(
-            "In-app notification for recipient {RecipientMask} is simulation-only; no user-facing inbox delivery occurred, correlation {CorrelationId}",
-            recipientMask,
-            correlationId);
+        if (_notificationRepository is null)
+        {
+            _logger.LogWarning(
+                "In-app notification for recipient {RecipientMask} cannot be persisted; no repository configured, correlation {CorrelationId}",
+                RecipientMasking.Mask(notification.Recipient),
+                correlationId);
 
-        return new NotificationDeliveryResult(
-            true,
-            NotificationDeliveryStatus.MockSent,
-            NotificationChannel.InApp,
-            attemptedAt,
-            DateTimeOffset.UtcNow,
-            null,
-            "In-app delivery is a simulation only; no user-facing inbox delivery occurred.",
-            correlationId,
-            1,
-            null);
+            return new NotificationDeliveryResult(
+                true,
+                NotificationDeliveryStatus.MockSent,
+                NotificationChannel.InApp,
+                attemptedAt,
+                DateTimeOffset.UtcNow,
+                null,
+                "In-app notification was not persisted; no repository configured.",
+                correlationId,
+                1,
+                null);
+        }
+
+        try
+        {
+            await _notificationRepository.AddAsync(notification, cancellationToken);
+
+            _logger.LogInformation(
+                "In-app notification persisted for recipient {RecipientMask}, correlation {CorrelationId}",
+                RecipientMasking.Mask(notification.Recipient),
+                correlationId);
+
+            return new NotificationDeliveryResult(
+                true,
+                NotificationDeliveryStatus.Sent,
+                NotificationChannel.InApp,
+                attemptedAt,
+                DateTimeOffset.UtcNow,
+                null,
+                "In-app notification persisted to inbox.",
+                correlationId,
+                1,
+                null);
+        }
+        catch (NotificationPersistenceException exception)
+        {
+            _logger.LogError(
+                exception,
+                "In-app notification for recipient {RecipientMask} could not be persisted, correlation {CorrelationId}",
+                RecipientMasking.Mask(notification.Recipient),
+                correlationId);
+
+            return new NotificationDeliveryResult(
+                false,
+                NotificationDeliveryStatus.Failed,
+                NotificationChannel.InApp,
+                attemptedAt,
+                DateTimeOffset.UtcNow,
+                "NOTIFICATION_PERSISTENCE_FAILED",
+                "The in-app notification could not be persisted.",
+                correlationId,
+                0,
+                null);
+        }
     }
 
     private static NotificationDeliveryResult PersistenceFailureResult(

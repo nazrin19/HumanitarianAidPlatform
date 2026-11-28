@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using HumanitarianAidPlatform.Domain.Entities.Notifications;
 using HumanitarianAidPlatform.Domain.Entities.Requests;
 
@@ -243,10 +243,10 @@ internal static class NotificationRequestValidation
                 ["EventType"]);
         }
 
-        if (!NotificationMessageBuilder.IsSupportedLanguage(language))
+        if (language is not null && language.Trim().Length > 10)
         {
             yield return new ValidationResult(
-                "Language must be en, si, or ta.",
+                "Language code must be 10 characters or fewer.",
                 ["Language"]);
         }
 

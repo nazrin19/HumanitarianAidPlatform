@@ -231,84 +231,6 @@ function isNotificationDeliveryResult(
   );
 }
 
-async function handleMapPinDrop(latitude: number, longitude: number) {
-  if (
-    !Number.isFinite(latitude) ||
-    latitude < -90 ||
-    latitude > 90 ||
-    !Number.isFinite(longitude) ||
-    longitude < -180 ||
-    longitude > 180
-  ) {
-    return;
-  }
-
-  geocodingController.current?.abort();
-  const controller = new AbortController();
-  geocodingController.current = controller;
-  setIsGeocoding(true);
-  setGeocodedLocation({
-    latitude,
-    longitude,
-    label: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
-  });
-  setGeocodingFeedback({
-    kind: "status",
-    message: "Pin dropped. Looking up the address…",
-  });
-
-  try {
-    const accessToken = window.sessionStorage.getItem("authToken") ?? undefined;
-    if (!accessToken) {
-      clearSessionCredentials();
-      setIsRedirecting(true);
-      router.replace("/login");
-      return;
-    }
-
-    const outcome = await reverseGeocode(latitude, longitude, {
-      accessToken,
-      signal: controller.signal,
-    });
-    if (geocodingController.current !== controller) return;
-    if (outcome.kind === "unauthorized") {
-      clearSessionCredentials();
-      setIsRedirecting(true);
-      router.replace("/login");
-      return;
-    }
-    if (
-      outcome.kind === "found" &&
-      outcome.result &&
-      hasValidCoordinates(outcome.result)
-    ) {
-      const label =
-        outcome.result.displayAddress ??
-        `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-      setLocationQuery(label);
-      setGeocodedLocation({ latitude, longitude, label });
-      setGeocodingFeedback({
-        kind: "status",
-        message: `Pinned ${label} on the map.`,
-      });
-    } else {
-      setGeocodingFeedback({
-        kind: "error",
-        message:
-          outcome.message ??
-          (outcome.kind === "providerUnavailable"
-            ? "Address lookup is unavailable. The dropped pin remains on the map."
-            : "No address was found. The dropped pin remains on the map."),
-      });
-    }
-  } finally {
-    if (geocodingController.current === controller) {
-      geocodingController.current = null;
-      setIsGeocoding(false);
-    }
-  }
-}
-
 function isApiNotificationHistoryItem(
   value: unknown,
 ): value is ApiNotificationHistoryItem {
@@ -1033,6 +955,7 @@ export default function DashboardPage() {
       return;
     }
 
+    const destinationLocation = geocodedLocation;
     const controller = new AbortController();
     let active = true;
     const token = window.sessionStorage.getItem("authToken");
@@ -1054,8 +977,8 @@ export default function DashboardPage() {
           body: JSON.stringify({
             origin: userLocation,
             destination: {
-              latitude: geocodedLocation.latitude,
-              longitude: geocodedLocation.longitude,
+              latitude: destinationLocation.latitude,
+              longitude: destinationLocation.longitude,
             },
           }),
           signal: controller.signal,
@@ -1816,12 +1739,94 @@ export default function DashboardPage() {
               : "Unable to search for this location.",
         });
       }
-    } catch (error) {
+    } finally {
       if (geocodingController.current === controller) {
+        geocodingController.current = null;
+        setIsGeocoding(false);
+      }
+    }
+  }
+
+  async function handleMapPinDrop(latitude: number, longitude: number) {
+    if (
+      !Number.isFinite(latitude) ||
+      latitude < -90 ||
+      latitude > 90 ||
+      !Number.isFinite(longitude) ||
+      longitude < -180 ||
+      longitude > 180
+    ) {
+      return;
+    }
+
+    geocodingController.current?.abort();
+    const controller = new AbortController();
+    geocodingController.current = controller;
+    setIsGeocoding(true);
+    setGeocodedLocation({
+      latitude,
+      longitude,
+      label: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+    });
+    setGeocodingFeedback({
+      kind: "status",
+      message: "Pin dropped. Looking up the address…",
+    });
+
+    try {
+      const accessToken =
+        window.sessionStorage.getItem("authToken") ?? undefined;
+      if (!accessToken) {
+        clearSessionCredentials();
+        setIsRedirecting(true);
+        router.replace("/login");
+        return;
+      }
+
+      const outcome = await reverseGeocode(latitude, longitude, {
+        accessToken,
+        signal: controller.signal,
+      });
+      if (geocodingController.current !== controller) return;
+      if (outcome.kind === "unauthorized") {
+        clearSessionCredentials();
+        setIsRedirecting(true);
+        router.replace("/login");
+        return;
+      }
+      if (
+        outcome.kind === "found" &&
+        outcome.result &&
+        hasValidCoordinates(outcome.result)
+      ) {
+        const label =
+          outcome.result.displayAddress ??
+          `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+        setLocationQuery(label);
+        setGeocodedLocation({ latitude, longitude, label });
+        setGeocodingFeedback({
+          kind: "status",
+          message: `Pinned ${label} on the map.`,
+        });
+      } else {
         setGeocodingFeedback({
           kind: "error",
           message:
-            error instanceof Error
+            outcome.message ??
+            (outcome.kind === "providerUnavailable"
+              ? "Address lookup is unavailable. The dropped pin remains on the map."
+              : "No address was found. The dropped pin remains on the map."),
+        });
+      }
+    } catch (error) {
+      if (geocodingController.current === controller) {
+        const wasCancelled =
+          error instanceof DOMException && error.name === "AbortError";
+        setGeocodingFeedback({
+          kind: wasCancelled ? "status" : "error",
+          message: wasCancelled
+            ? "Address lookup cancelled."
+            : error instanceof Error
               ? `Address lookup failed. The dropped pin remains on the map. ${error.message}`
               : "Address lookup failed. The dropped pin remains on the map.",
         });

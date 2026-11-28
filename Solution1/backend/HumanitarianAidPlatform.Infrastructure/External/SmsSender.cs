@@ -59,11 +59,11 @@ public sealed class SmsSender : ISmsSender, IDisposable
                 "SMS delivery is disabled.");
         }
 
-        var mode = _configuration["Notifications:ProviderMode"] ??
-            _configuration["Notifications:Providers:Sms:Mode"] ?? "Sandbox";
+        var mode = _configuration["Notifications:Providers:Sms:Mode"] ??
+            _configuration["Notifications:ProviderMode"] ?? "Sandbox";
         if (string.Equals(mode, "Sandbox", StringComparison.OrdinalIgnoreCase))
         {
-            return SandboxResult(attemptedAt, correlationId, 1, null);
+            return SandboxResult(attemptedAt, recipientMask, correlationId, 1, null);
         }
         if (!string.Equals(mode, "Live", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(mode, "Real", StringComparison.OrdinalIgnoreCase))
@@ -80,7 +80,7 @@ public sealed class SmsSender : ISmsSender, IDisposable
                 "Live SMS webhook is not configured for recipient {RecipientMask}, correlation {CorrelationId}; using Sandbox.",
                 recipientMask,
                 correlationId);
-            return SandboxResult(attemptedAt, correlationId, 0,
+            return SandboxResult(attemptedAt, recipientMask, correlationId, 0,
                 "The SMS webhook is not configured; no SMS was sent.");
         }
 
@@ -140,6 +140,7 @@ public sealed class SmsSender : ISmsSender, IDisposable
                         correlationId);
                     return SandboxResult(
                         attemptedAt,
+                        recipientMask,
                         correlationId,
                         attempt,
                         $"The SMS webhook returned HTTP {(int)response.StatusCode}; no delivery was confirmed.");
@@ -177,18 +178,20 @@ public sealed class SmsSender : ISmsSender, IDisposable
             "Live SMS delivery failed after bounded retries for recipient {RecipientMask}, correlation {CorrelationId}; using Sandbox.",
             recipientMask,
             correlationId);
-        return SandboxResult(attemptedAt, correlationId, retries + 1,
+        return SandboxResult(attemptedAt, recipientMask, correlationId, retries + 1,
             "Live SMS delivery could not be confirmed; Sandbox fallback was recorded instead.");
     }
 
     private NotificationDeliveryResult SandboxResult(
         DateTimeOffset attemptedAt,
+        string recipientMask,
         Guid correlationId,
         int attempts,
         string? detail)
     {
         _logger.LogInformation(
-            "SMS used Sandbox mode for correlation {CorrelationId}.",
+            "SMS used Sandbox mode for recipient {RecipientMask}, correlation {CorrelationId}.",
+            recipientMask,
             correlationId);
         var resultMessage = detail is null
             ? "Sandbox mode: no SMS was sent."

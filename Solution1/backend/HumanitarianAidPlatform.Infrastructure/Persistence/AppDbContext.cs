@@ -201,11 +201,16 @@ public class AppDbContext : DbContext
                 .HasConversion<string>()
                 .HasMaxLength(40)
                 .HasDefaultValue(NotificationEventType.General)
+                .HasSentinel((NotificationEventType)(-1))
                 .IsRequired();
 
             n.Property(x => x.Language)
-                .HasMaxLength(2)
+                .HasMaxLength(10)
                 .HasDefaultValue("en")
+                .IsRequired();
+
+            n.Property(x => x.Recipient)
+                .HasMaxLength(256)
                 .IsRequired();
 
             n.Property(x => x.ErrorCode)

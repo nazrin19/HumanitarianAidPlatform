@@ -215,6 +215,195 @@
   white-space: nowrap;
 }
 
+.notificationControl {
+  position: relative;
+}
+
+.notificationPopover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 1000;
+  width: 380px;
+  min-width: 320px;
+  max-width: 420px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(18, 32, 58, 0.18), 0 2px 8px rgba(18, 32, 58, 0.08);
+}
+
+.popoverHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.popoverHeading h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.textButton {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.textButton:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #d1d5db;
+}
+
+.textButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.notificationTabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+}
+
+.notificationTab,
+.notificationTabActive {
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.notificationTab:hover {
+  background: #f3f5f8;
+  color: var(--ink);
+}
+
+.notificationTabActive {
+  border-color: var(--green);
+  background: var(--mint);
+  color: var(--green);
+}
+
+.inboxList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.inboxItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.inboxItem:hover {
+  border-color: var(--green);
+  box-shadow: 0 2px 8px rgba(27, 107, 71, 0.1);
+}
+
+.inboxItemUnread {
+  border-color: var(--green);
+  background: #f8fff9;
+}
+
+.inboxItemHeading {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.inboxMessage {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.unreadDot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--green);
+  margin-top: 3px;
+}
+
+.inboxItem time {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.popoverFooter {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.popoverFooter a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--green);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--green);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.popoverFooter a:hover {
+  background: var(--mint);
+  color: var(--green-dark);
+}
+
+@media (max-width: 480px) {
+  .notificationPopover {
+    right: -40px;
+    width: 340px;
+    min-width: 280px;
+  }
+}
+
 .wrap {
   display: grid;
   max-width: 1500px;

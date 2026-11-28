@@ -75,6 +75,33 @@ public static class NotificationMessageBuilder
         };
     }
 
+    public static NotificationContent ShelterAssignment(
+        string? assignmentName,
+        string? language)
+    {
+        var location = string.IsNullOrWhiteSpace(assignmentName)
+            ? null
+            : assignmentName.Trim();
+        return NormalizeLanguage(language) switch
+        {
+            "si" => new(
+                "නවාතැන් පැවරුම යාවත්කාලීනයි",
+                location is null
+                    ? "ඔබ සඳහා ආරක්ෂිත නවාතැනක් පවරා ඇත. කරුණාකර විස්තර පරීක්ෂා කරන්න."
+                    : $"ඔබව {location} නවාතැනට පවරා ඇත. කරුණාකර පැමිණීමේ විස්තර පරීක්ෂා කරන්න."),
+            "ta" => new(
+                "தங்குமிட ஒதுக்கீடு புதுப்பிக்கப்பட்டது",
+                location is null
+                    ? "உங்களுக்கு தங்குமிடம் ஒதுக்கப்பட்டுள்ளது. விவரங்களைப் பார்க்கவும்."
+                    : $"உங்களுக்கு {location} தங்குமிடம் ஒதுக்கப்பட்டுள்ளது. வருகை விவரங்களைப் பார்க்கவும்."),
+            _ => new(
+                "Shelter assignment update",
+                location is null
+                    ? "A shelter space has been assigned for your assistance request. Please check your dashboard for details."
+                    : $"You have been assigned to {location}. Please check your dashboard for arrival details.")
+        };
+    }
+
     public static NotificationContent Emergency(string? message, string? language)
     {
         var template = NormalizeLanguage(language) switch

@@ -36,11 +36,11 @@ public sealed class EmailSender : IEmailSender
                 "Email delivery is disabled.");
         }
 
-        var mode = _configuration["Notifications:ProviderMode"] ??
-            _configuration["Notifications:Providers:Email:Mode"] ?? "Sandbox";
+        var mode = _configuration["Notifications:Providers:Email:Mode"] ??
+            _configuration["Notifications:ProviderMode"] ?? "Sandbox";
         if (string.Equals(mode, "Sandbox", StringComparison.OrdinalIgnoreCase))
         {
-            return SandboxResult(attemptedAt, correlationId, 1, null);
+            return SandboxResult(attemptedAt, recipientMask, correlationId, 1, null);
         }
         if (!string.Equals(mode, "Live", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(mode, "Real", StringComparison.OrdinalIgnoreCase))
@@ -60,7 +60,7 @@ public sealed class EmailSender : IEmailSender
                 "Live email is not configured for recipient {RecipientMask}, correlation {CorrelationId}; using Sandbox.",
                 recipientMask,
                 correlationId);
-            return SandboxResult(attemptedAt, correlationId, 0,
+            return SandboxResult(attemptedAt, recipientMask, correlationId, 0,
                 "SMTP is not configured; no email was sent.");
         }
 
@@ -131,7 +131,7 @@ public sealed class EmailSender : IEmailSender
             "Live email delivery failed after bounded retries for recipient {RecipientMask}, correlation {CorrelationId}; using Sandbox.",
             recipientMask,
             correlationId);
-        return SandboxResult(attemptedAt, correlationId, retries + 1,
+        return SandboxResult(attemptedAt, recipientMask, correlationId, retries + 1,
             "Live email could not be delivered; Sandbox fallback was recorded instead.");
     }
 
@@ -141,8 +141,19 @@ public sealed class EmailSender : IEmailSender
         int attempts,
         string? detail)
     {
+        return SandboxResult(attemptedAt, "[unknown]", correlationId, attempts, detail);
+    }
+
+    private NotificationDeliveryResult SandboxResult(
+        DateTimeOffset attemptedAt,
+        string recipientMask,
+        Guid correlationId,
+        int attempts,
+        string? detail)
+    {
         _logger.LogInformation(
-            "Email used Sandbox mode for correlation {CorrelationId}.",
+            "Email used Sandbox mode for recipient {RecipientMask}, correlation {CorrelationId}.",
+            recipientMask,
             correlationId);
         var message = detail is null
             ? "Sandbox mode: no email was sent."

@@ -1,4 +1,4 @@
-﻿using HumanitarianAidPlatform.Application.Notifications;
+using HumanitarianAidPlatform.Application.Notifications;
 using HumanitarianAidPlatform.Domain.Entities.Notifications;
 using HumanitarianAidPlatform.Infrastructure.External;
 using HumanitarianAidPlatform.Infrastructure.Notifications;
@@ -171,25 +171,22 @@ public class NotificationServiceTests
         Assert.NotNull(result.ErrorMessage);
         Assert.Contains(senderLogger.Entries,
             entry => entry.Level == LogLevel.Information &&
-                     entry.Message.Contains("SMS notification attempt"));
-        Assert.Contains(senderLogger.Entries,
-            entry => entry.Level == LogLevel.Warning &&
-                     entry.Message.Contains("sandbox/mock delivery"));
+                     entry.Message.Contains("Sandbox mode") &&
+                     entry.Message.Contains("***0100"));
     }
 
     [Fact]
-    public async Task RealProviderModeWithoutSdkReturnsProviderSpecificFailureDetails()
+    public async Task LiveEmailWithoutSmtpConfigurationFallsBackSafelyToSandbox()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Notifications:Providers:Email:Enabled"] = "true",
-                ["Notifications:Providers:Email:Mode"] = "Real"
+                ["Notifications:Providers:Email:Mode"] = "Live"
             })
             .Build();
-        var sender = new EmailSender(
-            configuration,
-            new RecordingLogger<EmailSender>());
+        var logger = new RecordingLogger<EmailSender>();
+        var sender = new EmailSender(configuration, logger);
 
         var result = await sender.SendAsync(
             "citizen@example.test",
@@ -198,11 +195,70 @@ public class NotificationServiceTests
             Guid.NewGuid(),
             CancellationToken.None);
 
-        Assert.False(result.Succeeded);
-        Assert.Equal(NotificationDeliveryStatus.Failed, result.Status);
-        Assert.Equal("EMAIL_PROVIDER_NOT_IMPLEMENTED", result.ErrorCode);
-        Assert.NotNull(result.ErrorMessage);
+        Assert.True(result.Succeeded);
+        Assert.Equal(NotificationDeliveryStatus.MockSent, result.Status);
+        Assert.Contains("SMTP is not configured", result.ErrorMessage);
         Assert.NotNull(result.CompletedAt);
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("ci***@example.test"));
+    }
+
+    [Fact]
+    public async Task LiveSmsWithoutWebhookFallsBackSafelyToSandbox()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Notifications:ProviderMode"] = "Live",
+                ["Notifications:Providers:Sms:Enabled"] = "true"
+            })
+            .Build();
+        var logger = new RecordingLogger<SmsSender>();
+        var sender = new SmsSender(configuration, logger);
+
+        var result = await sender.SendAsync(
+            "+15555550100",
+            "Approved",
+            Guid.NewGuid(),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(NotificationDeliveryStatus.MockSent, result.Status);
+        Assert.Contains("webhook is not configured", result.ErrorMessage);
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("***0100"));
+    }
+
+    [Fact]
+    public void MultilingualBuilderGeneratesEnSiTaAndFallsBackToEn()
+    {
+        var requestId = Guid.Parse("12345678-1234-1234-1234-1234567890ab");
+
+        var siStatus = NotificationMessageBuilder.ApplicationStatus(
+            requestId,
+            Domain.Entities.Requests.RequestStatus.Approved,
+            null,
+            "si");
+        var taAllocation = NotificationMessageBuilder.Allocation(
+            requestId,
+            5,
+            "Water",
+            "Shelter A",
+            "ta");
+        var fallbackShelter = NotificationMessageBuilder.ShelterAssignment(
+            "Central Shelter",
+            "fr");
+        var emergencyEn = NotificationMessageBuilder.Emergency(null, "unknown");
+
+        Assert.Contains("12345678", siStatus.Message);
+        Assert.NotEqual("Assistance request status update", siStatus.Title);
+        Assert.Contains("12345678", taAllocation.Message);
+        Assert.Contains("Shelter A", taAllocation.Message);
+        Assert.Equal("Shelter assignment update", fallbackShelter.Title);
+        Assert.Contains("Central Shelter", fallbackShelter.Message);
+        Assert.Equal("Emergency announcement", emergencyEn.Title);
     }
 
     [Fact]
@@ -399,7 +455,7 @@ public class NotificationServiceTests
     }
 
     [Fact]
-    public async Task InAppChannelIsLoggedAsSimulationWithoutUserFacingDelivery()
+    public async Task InAppChannelPersistsNotificationToInbox()
     {
         var repository = new RecordingNotificationRepository();
         var logger = new RecordingLogger<NotificationService>();
@@ -420,12 +476,12 @@ public class NotificationServiceTests
             CancellationToken.None);
 
         Assert.True(result.Succeeded);
-        Assert.Equal(NotificationDeliveryStatus.MockSent, result.Status);
+        Assert.Equal(NotificationDeliveryStatus.Sent, result.Status);
         Assert.Equal(NotificationChannel.InApp, result.Channel);
-        Assert.Contains("simulation only", result.ErrorMessage);
+        Assert.Contains("persisted to inbox", result.ErrorMessage);
         Assert.Contains(logger.Entries, entry =>
-            entry.Level == LogLevel.Warning &&
-            entry.Message.Contains("no user-facing inbox delivery occurred"));
+            entry.Level == LogLevel.Information &&
+            entry.Message.Contains("In-app notification persisted"));
         Assert.True(Assert.Single(repository.Notifications).IsSent);
     }
 
@@ -730,6 +786,155 @@ public class NotificationServiceTests
         Assert.Equal(2, emailSender.SendCount);
         Assert.Equal(1, smsSender.SendCount);
         Assert.True(repeatedSms.IsDuplicate);
+    }
+
+    [Fact]
+    public async Task ContentHashDeduplicationPreventsDuplicateDeliveryWithoutEventId()
+    {
+        var sender = new StubEmailSender();
+        var service = new NotificationService(
+            sender,
+            new StubSmsSender(),
+            new RecordingLogger<NotificationService>());
+        var request = new NotificationRequest
+        {
+            Recipient = "citizen@example.test",
+            Subject = "Status update",
+            Message = "Your request was approved.",
+            Channel = NotificationChannel.Email
+        };
+
+        var first = await service.SendAsync(request, CancellationToken.None);
+        var repeated = await service.SendAsync(request, CancellationToken.None);
+
+        Assert.Equal(1, sender.SendCount);
+        Assert.True(first.Succeeded);
+        Assert.False(first.IsDuplicate);
+        Assert.True(repeated.IsDuplicate);
+        Assert.Equal(first.CorrelationId, repeated.CorrelationId);
+    }
+
+    [Fact]
+    public async Task ContentHashDeduplicationIsScopedByChannelAndRecipient()
+    {
+        var emailSender = new StubEmailSender();
+        var smsSender = new StubSmsSender();
+        var service = new NotificationService(
+            emailSender,
+            smsSender,
+            new RecordingLogger<NotificationService>());
+        var request = new NotificationRequest
+        {
+            Recipient = "citizen@example.test",
+            Subject = "Status update",
+            Message = "Your request was approved.",
+            Channel = NotificationChannel.Email
+        };
+
+        await service.SendAsync(request, CancellationToken.None);
+        await service.SendAsync(
+            new NotificationRequest
+            {
+                Recipient = "other@example.test",
+                Subject = "Status update",
+                Message = "Your request was approved.",
+                Channel = NotificationChannel.Email
+            },
+            CancellationToken.None);
+        await service.SendAsync(
+            new NotificationRequest
+            {
+                Recipient = "+1 (555) 555-0100",
+                Subject = "Status update",
+                Message = "Your request was approved.",
+                Channel = NotificationChannel.Sms
+            },
+            CancellationToken.None);
+        var repeatedSms = await service.SendAsync(
+            new NotificationRequest
+            {
+                Recipient = "+15555550100",
+                Subject = "Status update",
+                Message = "Your request was approved.",
+                Channel = NotificationChannel.Sms
+            },
+            CancellationToken.None);
+
+        Assert.Equal(2, emailSender.SendCount);
+        Assert.Equal(1, smsSender.SendCount);
+        Assert.True(repeatedSms.IsDuplicate);
+    }
+
+    [Fact]
+    public async Task ContentHashDeduplicationAllowsDifferentContent()
+    {
+        var sender = new StubEmailSender();
+        var service = new NotificationService(
+            sender,
+            new StubSmsSender(),
+            new RecordingLogger<NotificationService>());
+
+        var firstRequest = new NotificationRequest
+        {
+            Recipient = "citizen@example.test",
+            Subject = "Status update",
+            Message = "Your request was approved.",
+            Channel = NotificationChannel.Email
+        };
+        var secondRequest = new NotificationRequest
+        {
+            Recipient = "citizen@example.test",
+            Subject = "Status update",
+            Message = "Your request was rejected.",
+            Channel = NotificationChannel.Email
+        };
+
+        var first = await service.SendAsync(firstRequest, CancellationToken.None);
+        var second = await service.SendAsync(secondRequest, CancellationToken.None);
+
+        Assert.Equal(2, sender.SendCount);
+        Assert.False(first.IsDuplicate);
+        Assert.False(second.IsDuplicate);
+        Assert.NotEqual(first.CorrelationId, second.CorrelationId);
+    }
+
+    [Fact]
+    public async Task EventIdDeduplicationTakesPrecedenceOverContentHash()
+    {
+        var sender = new StubEmailSender();
+        var deduplicator = new NotificationDeliveryDeduplicator();
+        var service = new NotificationService(
+            sender,
+            new StubSmsSender(),
+            deduplicator,
+            new RecordingLogger<NotificationService>());
+        var eventId = Guid.NewGuid();
+
+        var firstRequest = new NotificationRequest
+        {
+            EventId = eventId,
+            Recipient = "citizen@example.test",
+            Subject = "Status update",
+            Message = "Your request was approved.",
+            Channel = NotificationChannel.Email
+        };
+        var secondRequest = new NotificationRequest
+        {
+            EventId = eventId,
+            Recipient = "citizen@example.test",
+            Subject = "Different subject",
+            Message = "Different message.",
+            Channel = NotificationChannel.Email
+        };
+
+        var first = await service.SendAsync(firstRequest, CancellationToken.None);
+        var second = await service.SendAsync(secondRequest, CancellationToken.None);
+
+        Assert.Equal(1, sender.SendCount);
+        Assert.True(first.Succeeded);
+        Assert.False(first.IsDuplicate);
+        Assert.True(second.IsDuplicate);
+        Assert.Equal(first.CorrelationId, second.CorrelationId);
     }
 
     [Fact]
