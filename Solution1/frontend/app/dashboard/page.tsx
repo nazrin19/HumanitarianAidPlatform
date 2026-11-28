@@ -18,7 +18,7 @@ import {
   clearSessionCredentials,
   useSessionRole,
 } from "../lib/auth-session";
-import { forwardGeocode } from "../lib/geocoding";
+import { forwardGeocode, reverseGeocode } from "../lib/geocoding";
 import styles from "./page.module.css";
 import mapStyles from "./LiveAidMap.module.css";
 import type {
@@ -80,6 +80,7 @@ type Shelter = {
   p: number;
   u: number;
   c: number;
+  district: string | null;
   latitude: number | null;
   longitude: number | null;
 };
@@ -145,6 +146,33 @@ const requestStatuses: RequestStatus[] = [
 ];
 
 const urgencyLevels: Urgency[] = ["Critical", "High", "Medium", "Low"];
+const sriLankanDistricts = [
+  "Ampara",
+  "Anuradhapura",
+  "Badulla",
+  "Batticaloa",
+  "Colombo",
+  "Galle",
+  "Gampaha",
+  "Hambantota",
+  "Jaffna",
+  "Kalutara",
+  "Kandy",
+  "Kegalle",
+  "Kilinochchi",
+  "Kurunegala",
+  "Mannar",
+  "Matale",
+  "Matara",
+  "Monaragala",
+  "Mullaitivu",
+  "Nuwara Eliya",
+  "Polonnaruwa",
+  "Puttalam",
+  "Ratnapura",
+  "Trincomalee",
+  "Vavuniya",
+] as const;
 const requestStaffRoles = new Set([
   "Coordinator",
   "CaseManager",
@@ -226,9 +254,19 @@ function mapApiShelters(rows: ApiShelter[]): Shelter[] {
         : 0,
     u: shelter.currentOccupancy,
     c: shelter.capacity,
+    district: getShelterDistrict(shelter.name),
     latitude: shelter.latitude,
     longitude: shelter.longitude,
   }));
+}
+
+function getShelterDistrict(text: string): string | null {
+  const normalized = text.toLowerCase();
+  return (
+    sriLankanDistricts.find((district) =>
+      normalized.includes(district.toLowerCase()),
+    ) ?? null
+  );
 }
 
 function mapResources(rows: ApiResource[]): Depot[] {
@@ -302,6 +340,8 @@ export default function DashboardPage() {
     res: true,
   });
   const [urgency, setUrgency] = useState("all");
+  const [selectedDistrict, setSelectedDistrict] = useState("All districts");
+  const [districtMenuOpen, setDistrictMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState<Selection>(null);
   const [toast, setToast] = useState("");
@@ -500,7 +540,40 @@ export default function DashboardPage() {
           throw new Error("The server returned shelters in an unexpected format.");
         }
         if (active) {
-          setShelters(mapApiShelters(body));
+          const mappedShelters = mapApiShelters(body);
+          if (role === "ShelterAdmin") {
+            const sheltersWithDistricts = await Promise.all(
+              mappedShelters.map(async (shelter) => {
+                if (shelter.district) return shelter;
+                if (shelter.latitude === null || shelter.longitude === null) {
+                  return shelter;
+                }
+
+                const outcome = await reverseGeocode(
+                  shelter.latitude,
+                  shelter.longitude,
+                  { accessToken: token, signal: controller.signal },
+                );
+                if (outcome.kind !== "found" && outcome.kind !== "ambiguous") {
+                  return shelter;
+                }
+
+                const addressText = [
+                  outcome.result?.displayAddress ?? "",
+                  ...(outcome.result?.candidates.map((candidate) =>
+                    candidate.displayAddress,
+                  ) ?? []),
+                ].join(" ");
+                return {
+                  ...shelter,
+                  district: getShelterDistrict(addressText),
+                };
+              }),
+            );
+            setShelters(sheltersWithDistricts);
+          } else {
+            setShelters(mappedShelters);
+          }
           setShelterLoadError("");
         }
       } catch (loadError) {
@@ -600,6 +673,13 @@ export default function DashboardPage() {
             .flatMap(({ shelter }) => {
               if (!hasValidCoordinates(shelter)) return [];
               if (
+                accountRole === "ShelterAdmin" &&
+                selectedDistrict !== "All districts" &&
+                shelter.district !== selectedDistrict
+              ) {
+                return [];
+              }
+              if (
                 accountRole === "Citizen" &&
                 userLocation &&
                 distanceKm(
@@ -623,7 +703,13 @@ export default function DashboardPage() {
               ];
             })
         : [],
-    [accountRole, layers.sh, matchingShelters, userLocation],
+    [
+      accountRole,
+      layers.sh,
+      matchingShelters,
+      selectedDistrict,
+      userLocation,
+    ],
   );
   const mapResourcePoints = useMemo<MapResourcePoint[]>(
     () =>
@@ -1049,7 +1135,11 @@ export default function DashboardPage() {
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <div className={styles.nav}>
+        <div
+          className={`${styles.nav}${
+            accountRole === "ShelterAdmin" ? ` ${styles.navShelterAdmin}` : ""
+          }`}
+        >
           <Link className={styles.brand} href="/" aria-label="Humanitarian Aid Platform home">
             <Image
               className={styles.logo}
@@ -1061,26 +1151,47 @@ export default function DashboardPage() {
             <span>Humanitarian Aid Platform</span>
           </Link>
           <nav className={styles.tabs} aria-label="Main">
-            <Link className={styles.activeTab} href="/dashboard">Dashboard</Link>
-            <Link href="#queue">Requests</Link>
+            <Link
+              className={styles.activeTab}
+              href={accountRole === "ShelterAdmin" ? "/" : "/dashboard"}
+            >
+              {accountRole === "ShelterAdmin" ? "Home" : "Dashboard"}
+            </Link>
+            {accountRole !== "ShelterAdmin" && (
+              <Link href="#queue">Requests</Link>
+            )}
             {requestStaffRoles.has(accountRole) && <Link href="#map-card">Staff Map</Link>}
             {accountRole === "Citizen" && <Link href="#map-card">Nearby Map</Link>}
-            <Link href="#shelters-resources">Shelters &amp; Resources</Link>
-            <Link href="/portal">Account</Link>
+            <Link href="#shelters-resources">
+              {accountRole === "ShelterAdmin"
+                ? "Shelters"
+                : "Shelters & Resources"}
+            </Link>
+            <Link
+              href={
+                accountRole === "ShelterAdmin"
+                  ? "/portal#shelter-history"
+                  : "/portal"
+              }
+            >
+              Account
+            </Link>
           </nav>
-          <label className={styles.search}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-4-4" />
-            </svg>
-            <input
-              type="search"
-              placeholder="Search requests, shelters, resources…"
-              aria-label="Search requests, shelters, resources"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
+          {accountRole !== "ShelterAdmin" && (
+            <label className={styles.search}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-4-4" />
+              </svg>
+              <input
+                type="search"
+                placeholder="Search requests, shelters, resources…"
+                aria-label="Search requests, shelters, resources"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
+          )}
           <button
             className={styles.bell}
             type="button"
@@ -1160,6 +1271,8 @@ export default function DashboardPage() {
                         ["sh", "Shelters"],
                         ["res", "Resources"],
                       ] as const
+                    : accountRole === "ShelterAdmin"
+                    ? [["sh", "Shelters"]] as const
                     : [
                         ["req", "Requests"],
                         ["sh", "Shelters"],
@@ -1177,6 +1290,47 @@ export default function DashboardPage() {
                   </button>
                 ))}
               </div>
+              {accountRole === "ShelterAdmin" && (
+                <div className={styles.districtFilter}>
+                  <button
+                    className={styles.districtButton}
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded={districtMenuOpen}
+                    onClick={() => setDistrictMenuOpen((open) => !open)}
+                  >
+                    {selectedDistrict}
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <path d="m5 7.5 5 5 5-5" />
+                    </svg>
+                  </button>
+                  {districtMenuOpen && (
+                    <div
+                      className={styles.districtMenu}
+                      role="listbox"
+                      aria-label="Filter shelters by district"
+                    >
+                      {["All districts", ...sriLankanDistricts].map(
+                        (district) => (
+                          <button
+                            className={styles.districtOption}
+                            type="button"
+                            role="option"
+                            aria-selected={selectedDistrict === district}
+                            key={district}
+                            onClick={() => {
+                              setSelectedDistrict(district);
+                              setDistrictMenuOpen(false);
+                            }}
+                          >
+                            {district}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               {accountRole === "Citizen" ? (
                 <button
                   className={styles.button}
